@@ -39,7 +39,9 @@ class HTBSettings {
       if (this.pending) this.status.textContent = "Disconnected before confirmation. Reopen HTB to check setup.";
       this.pending = null;
       clearTimeout(this.timer);
-      for (const element of this.connectionStates) element.textContent = "Offline. Reopen setup after reconnecting to check the saved connection.";
+      if (wasConnected) {
+        for (const element of this.connectionStates) element.textContent = "Offline. Reopen setup after reconnecting to check the saved connection.";
+      }
     }
     this.render();
   }

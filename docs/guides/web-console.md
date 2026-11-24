@@ -60,6 +60,14 @@ Text left visible after a provider failure or disconnect is a preview and may
 not have been saved. Streaming leaves your scroll position in place when you
 are reading earlier messages.
 
+Slash commands typed in the composer (`/help`, `/clear`, `/mode`,
+`/verbosity`, `/approval`, `/autonomy` and `/mcp`) never reach the model, except
+`/mcp prompt`, which sends the server's prompt as your message. Each of the
+others answers with a reply card under the command. The card has a coloured edge,
+red with ✗ when the command failed, so it is not mistaken for the model's
+answer. A change made with the approval or mode picker is noted in the activity
+feed instead, along with tool calls, warnings and other background events.
+
 ## Workspace navigation
 
 The sidebar groups **Conversation**, **Assets & targets**, and **Network map**
@@ -229,11 +237,15 @@ If a saved session ends during a tool call, resume supplies a missing-result
 notice for that call so the provider can continue reading the conversation.
 Its execution outcome stays unknown: the tool may already have made changes.
 Resume does not rerun it or rewrite the original transcript; inspect saved
-evidence and target state before retrying remediation. Streamed provider failures
+evidence and target state before retrying remediation. In the resumed
+conversation such a call is shown as **Tool outcome unknown**, with its activity
+group expanded. Streamed provider failures
 appear as errors instead of silently finishing a turn with no answer.
 
 Recent messages appear first; **Load earlier messages** retrieves older messages
-from the transcript as it was opened. Long individual messages have explicitly
+from the transcript as it was opened. Saved tool results appear as collapsed
+activity entries (**Tool finished**, **Tool failed** or **Tool not completed**),
+as they did during the live turn; expand one to read the saved result. Long individual messages have explicitly
 clipped previews, while full messages and provider replay data remain in the
 saved engagement and model history. Conversations above 20 MiB must be opened
 in the CLI. Existing compaction summaries are preserved; resume cannot recover
@@ -376,17 +388,46 @@ profile screen is needed.
 
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
-have a **Make compliant** shortcut. Select an asset or target host, select a
-baseline, and choose **Assess asset**. The workspace lists each normalized
-IP/domain host once, preferring its asset record when both roles exist. The
-terminal runs the same workflow and reads the same saved runs through
+have a **Make compliant** shortcut. Select an asset or target host. Kerkov retrieves
+recorded SSH access automatically; **Find assessment details** searches the existing
+engagement and conversation when those references are missing. When details are
+available, choose **Scan host**. Discovery does not start a scan or apply fixes.
+The workspace lists each normalized
+IP/domain host once, preferring its asset record when both roles exist.
+The terminal runs the same workflow and reads the same saved runs through
 [`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
+
+Setup runs from **Host** to **Profiles** to **Assessment**, with actions after the
+profile choices. Profiles appear as selectable panels on the main page. **Customize** opens a
+detailed section for SSH key-file references, profile settings and remediation
+options; **Done** closes it while preserving your edits. **Profile search & imports**
+contains local profiles, search filters and GitHub imports. Filtering keeps the
+selected profile and connection details. **Complete missing settings** opens and focuses
+the first missing field. Multiple recorded endpoints require an explicit choice.
+Available settings do not confirm access: the workflow checks the connection when
+it runs.
 
 For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
 path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
 on the target and offers assessment only. If the scanner is missing, request
 its installation separately in chat. See the
 [OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
+
+After a saved assessment loads, setup collapses into a host/profile summary.
+Choose **Edit setup** to review or change it. The result shows evaluated, passed,
+failed and errored counts; OpenSCAP lists not-applicable and unselected rules
+separately. Failed checks appear first with readable names and a single **Result**
+column for assessment-only runs. Select a check for its full ID and saved evidence.
+Preview/apply workflows retain their before/after comparison.
+Select the passed, failed, or error count to filter loaded checks by that outcome.
+**Clear check filters** restores all loaded checks. Counts describe the saved
+report; the check list can be limited to 200 entries.
+
+**Run details** contains preflight readiness, plan hashes, evidence paths and logs;
+preflight messages describe checks performed before execution. **Previous
+assessments** holds run history. Both sections stay collapsed until opened.
+**Download report** exports HTML, and JSON remains available under Run details.
+**Scan host** reassesses the saved snapshot using the existing approval flow.
 
 Two paired assessment/remediation baselines ship with Kerkov:
 
@@ -445,7 +486,7 @@ including facts recorded by setup agents. It does not infer credentials from
 container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
-- **Assess asset** checks the selected baseline without requesting remediation.
+- **Scan host** checks the selected baseline without requesting remediation.
   **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
   baseline. Choose one or paste a public GitHub URL, validate it, and review
   its revision and pinned dependency sources before selecting **Download & prepare**.
@@ -456,10 +497,12 @@ keys stay in their existing files; normal approvals still govern execution.
   prepared offline dependencies. Enter the project directory and any inputs
   file; Ansible settings are optional for assessment. See
   [reusing an existing project](../reference/tools/compliance.md#reuse-an-existing-profile-project).
-- **Preview changes** checks it and requests Ansible check mode. Check mode can
+- After a scan finds failed checks, **Preview fixes** checks it and requests Ansible
+  check mode. Fix actions remain hidden before that scan and when all checks pass.
+  Check mode can
   still make changes; inspect the actual tool calls and results.
-- **Use this preview to apply** restores a completed preview for review.
-  **Apply reviewed changes** requires its matching settings and file hashes, runs
+- **Review fixes** restores a completed preview for review.
+  **Apply fixes** requires its matching settings and file hashes, runs
   an initial assessment, requests the paired playbook when needed, then reassesses
   against the initial profile snapshot with the same SHA-256. A successful
   playbook recap alone is not verification.
@@ -501,6 +544,16 @@ instructions and results are saved as context in the same engagement, so a later
 chat message can ask about the outcome without repeating the host or evidence.
 They do not appear as chat bubbles, including after resume. One run executes at a
 time; the conversation composer becomes available again when the workflow ends.
+The status line under the actions reports the saved outcome when a run ends, for
+example **Assessment failed:** with the reason, rather than a generic finish.
+
+**Before you run**, above the form, lists conditions that are known before any
+connection details are entered. With `EXECUTION_ENABLED` off, or on a Windows
+controller (use Linux, macOS or WSL), the run buttons are disabled. Outside Blue
+mode it notes that compliance targets Blue and that `/mode blue` starts a new
+engagement; runs remain available. The list updates when the mode changes or a
+saved engagement is resumed, and the server still checks every condition when
+a run starts.
 Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
 see [assessment](../reference/tools/compliance.md) and
 [automation](../reference/tools/ansible.md). For built-in remediation, the
@@ -737,8 +790,9 @@ The panel loads when the console connects and with **Refresh**, including
 during a run. It is read-only, and auth states name where a key came from
 (`key (keyring)`), never its value.
 
-Type `/mcp` (or `/mcp status`) and `/mcp list [server]` in the conversation for
-the same information as an activity entry. `/mcp connect [server]` re-reads
+Type `/mcp` (or `/mcp status`) in the conversation for the same server rows in a
+reply card, or `/mcp list [server]` for those rows already expanded to their
+tools. `/mcp connect [server]` re-reads
 `mcp.json`, closes servers removed from it and connects one server or every
 enabled one that is not connected; `/mcp disconnect <server>` closes one. Both
 change the advertised tool list, so the next request rebuilds the provider's

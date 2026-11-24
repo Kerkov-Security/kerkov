@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from prompt_toolkit.formatted_text import to_formatted_text
 
 from kerkov.cli.messages.models_message import ModelsMessage
+from kerkov.providers.model_catalog import ModelCatalogError
 
 
 def _run(coro):
@@ -146,6 +147,17 @@ class ModelsMessageTest(unittest.TestCase):
 
         self.assertTrue(_printed_contains(cli, "Timed out listing models"))
         self.assertTrue(_printed_contains(cli, "/model <name>"))
+
+    def test_reports_why_the_model_catalog_failed(self):
+        cli = _create_mock_cli()
+        cause = "Couldn't reach Ollama at http://localhost:11434 (connection refused)."
+        cli.provder_manager.provider.list_models.side_effect = ModelCatalogError(cause)
+
+        _run(ModelsMessage().execute(cli))
+
+        self.assertTrue(_printed_contains(cli, cause))
+        self.assertFalse(_printed_contains(cli, "No models found"))
+        cli.input_manager.choose.assert_not_awaited()
 
     def test_reports_setup_guidance_when_provider_is_missing(self):
         cli = _create_mock_cli()

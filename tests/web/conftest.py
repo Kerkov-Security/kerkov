@@ -61,26 +61,15 @@ def browser():
 
 
 @pytest.fixture
-def dashboard(browser):
-    """The rendered console on a fake socket, with its static assets served locally."""
-    yield from _open_dashboard(browser, session_ready=True)
-
-
-@pytest.fixture
-def dashboard_before_ready(browser):
-    """The console with its socket open but no `session.ready` received yet."""
-    yield from _open_dashboard(browser, session_ready=False)
-
-
-def _open_dashboard(browser, *, session_ready: bool):
+def connecting_dashboard(browser):
+    """The console on an open fake socket, before the session reports ready."""
     import mimetypes
     from urllib.parse import urlsplit
 
     from django.contrib.staticfiles import finders
     from django.test import Client
-    from playwright.sync_api import expect
 
-    from tests.web.browser_support import FAKE_SOCKET_SCRIPT, emit
+    from tests.web.browser_support import FAKE_SOCKET_SCRIPT
 
     response = Client().get("/", HTTP_HOST="localhost")
     assert response.status_code == 200
@@ -110,13 +99,23 @@ def _open_dashboard(browser, *, session_ready: bool):
     page.add_init_script(FAKE_SOCKET_SCRIPT)
     try:
         page.goto("http://localhost/")
-        expect(page.locator("#socket-state")).to_have_text("Online")
-        if session_ready:
-            emit(page, "session.ready", {"provider_ready": True})
+        page.wait_for_function("window.testSocket?.readyState === WebSocket.OPEN")
         yield page
         assert not errors, f"Dashboard JavaScript errors: {errors}"
     finally:
         context.close()
+
+
+@pytest.fixture
+def dashboard(connecting_dashboard):
+    """The rendered console on a fake socket, with its static assets served locally."""
+    from playwright.sync_api import expect
+
+    from tests.web.browser_support import emit
+
+    emit(connecting_dashboard, "session.ready", {"provider_ready": True})
+    expect(connecting_dashboard.locator("#socket-state")).to_have_text("Online")
+    return connecting_dashboard
 
 
 @pytest.fixture(autouse=True)

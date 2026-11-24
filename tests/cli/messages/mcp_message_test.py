@@ -177,6 +177,39 @@ def test_status_with_no_servers_explains_how_to_add_one(tmp_path: Path) -> None:
     assert "No MCP servers configured" in cli.console.export_text()
 
 
+@pytest.mark.parametrize(
+    "servers,server,expected",
+    [
+        (None, None, "No MCP servers configured. Add one with `/mcp add"),
+        ({"demo": {"command": "server"}}, "nope", "No MCP server named nope."),
+    ],
+)
+def test_list_without_a_matching_server_says_why(
+    tmp_path: Path, servers, server, expected: str
+) -> None:
+    cli = _create_mock_cli(tmp_path, servers)
+    cli.mcp.load()
+
+    asyncio.run(McpMessage(action="list", server=server).execute(cli))
+
+    output = cli.console.export_text()
+    assert expected in output
+    assert "No MCP server named ." not in output
+
+
+def test_list_reports_an_unreadable_mcp_json(tmp_path: Path) -> None:
+    cli = _create_mock_cli(tmp_path)
+    (tmp_path / "mcp.json").write_text("{not json", encoding="utf-8")
+    cli.mcp.load()
+    assert cli.mcp.load_error
+
+    asyncio.run(McpMessage(action="list").execute(cli))
+
+    output = cli.console.export_text()
+    assert "cannot read" in output
+    assert "No MCP server" not in output
+
+
 def test_status_bounds_the_table_on_a_wide_terminal(tmp_path: Path) -> None:
     cli = _create_mock_cli(
         tmp_path,

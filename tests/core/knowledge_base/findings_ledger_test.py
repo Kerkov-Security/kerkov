@@ -1,6 +1,7 @@
 """Tests for FindingsLedger — dedup/merge, serialization, migration, tree sharing."""
 
 import asyncio
+import json
 import shutil
 import sqlite3
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from kerkov.core.knowledge_base.engagement_kb import (
+    SCHEMA_VERSION,
     EngagementKnowledgeBase,
     kb_path_for,
 )
@@ -440,7 +442,123 @@ class MigrationTest(unittest.TestCase):
             version = int(check.execute("PRAGMA user_version").fetchone()[0])
         finally:
             check.close()
-        self.assertEqual(version, 2)
+        self.assertEqual(version, SCHEMA_VERSION)
+
+    def test_v2_url_rows_with_default_ports_fold_into_portless_identity(self):
+        tmpdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        kb = EngagementKnowledgeBase("root-1", tmpdir)
+        ledger = FindingsLedger(kb)
+
+        def stored(section, value, **extra):
+            # Written as schema v2 did: identity keeps the explicit port.
+            return _run(
+                kb.add_ledger_entry(
+                    engagement_id="root-1",
+                    section=section,
+                    entry={"kind": "url", "value": value, **extra},
+                    dedup_key=json.dumps(["url", value]),
+                )
+            )
+
+        repo = self._add_repository(ledger)
+        evidence = _run(kb.add_artifact(engagement_id="root-1", body="banner"))
+        legacy = stored(
+            LedgerSection.TARGETS, "https://example.test:443/app", name="Legacy"
+        )
+        portless = stored(LedgerSection.TARGETS, "https://example.test/app")
+        _run(
+            kb.add_ledger_entry(
+                engagement_id="agent-1",
+                section=LedgerSection.TARGETS,
+                entry={"kind": "url", "value": "https://example.test/app"},
+                dedup_key=json.dumps(["url", "https://example.test/app"]),
+                artifact_ref=evidence,
+            )
+        )
+        lone = stored(LedgerSection.ASSETS, "http://example.test:80/")
+        custom = stored(LedgerSection.TARGETS, "https://example.test:8443/app")
+        twin = stored(LedgerSection.ASSETS, "https://example.test/app")
+        for target in (portless, twin):
+            _run(
+                ledger.add_connection(
+                    {
+                        "source_id": repo,
+                        "target_id": target,
+                        "relation": "deploys_to",
+                        "provenance": "declared",
+                        "note": "pipeline",
+                    }
+                )
+            )
+        kb.close()
+        path = kb_path_for(tmpdir, "root-1")
+        conn = sqlite3.connect(str(path))
+        conn.execute("PRAGMA user_version=2")
+        conn.commit()
+        conn.close()
+
+        kb = EngagementKnowledgeBase("root-1", tmpdir)
+        self.addCleanup(kb.close)
+        ledger = FindingsLedger(kb)
+        rows = {row.id: row for row in _run(ledger.list())}
+
+        self.assertNotIn(portless, rows)
+        self.assertEqual(
+            rows[legacy].entry,
+            {"kind": "url", "value": "https://example.test/app", "name": "Legacy"},
+        )
+        self.assertEqual(rows[legacy].engagement_id, "root-1")
+        self.assertEqual(rows[legacy].artifact_ref, evidence)
+        self.assertEqual(rows[lone].entry["value"], "http://example.test/")
+        self.assertEqual(rows[custom].entry["value"], "https://example.test:8443/app")
+        self.assertEqual(rows[twin].entry["value"], "https://example.test/app")
+        connections = [
+            row.entry
+            for row in rows.values()
+            if row.section is LedgerSection.CONNECTIONS
+        ]
+        # Both edges collapse onto the oldest row holding the identity.
+        self.assertEqual(
+            [(c["source_id"], c["target_id"]) for c in connections], [(repo, legacy)]
+        )
+
+        # New writes under either spelling now reach the migrated rows.
+        self.assertEqual(
+            self._add_url(ledger, LedgerSection.TARGETS, "https://example.test/app"),
+            legacy,
+        )
+        self.assertEqual(
+            self._add_url(ledger, LedgerSection.ASSETS, "http://example.test:80/"),
+            lone,
+        )
+        self.assertEqual(
+            _run(
+                ledger.save_resource(
+                    LedgerSection.TARGETS,
+                    {"kind": "url", "value": "https://example.test:443/app"},
+                    entry_id=legacy,
+                )
+            ),
+            legacy,
+        )
+        self.assertEqual(len(_run(ledger.list(LedgerSection.CONNECTIONS))), 1)
+
+    @staticmethod
+    def _add_repository(ledger):
+        return _run(
+            ledger.add(
+                LedgerSection.ASSETS,
+                {"kind": "repository", "value": str(Path.home() / "app")},
+                engagement_id="root-1",
+            )
+        )
+
+    @staticmethod
+    def _add_url(ledger, section, value):
+        return _run(
+            ledger.add(section, {"kind": "url", "value": value}, engagement_id="x")
+        )
 
 
 if __name__ == "__main__":

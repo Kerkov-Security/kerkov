@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 
 from kerkov.agents.agent_session import AgentSession, AgentState
@@ -20,6 +21,7 @@ from kerkov.providers import workers
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.providers.codex.auth import CodexAuthConfig, CodexTokenManager
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.providers.ollama_provider import OllamaProvider
 from kerkov.providers.workers import ProviderWorkerPool
 from kerkov.web.runtime import providers as provider_runtime
 from kerkov.web.runtime.events import WebEventBus
@@ -255,6 +257,71 @@ async def test_switch_preserves_engagement_inventory_agents_history_and_accounti
     assert candidate.requests
     assert "prior answer" in [message.content for message in candidate.requests[0]]
     assert session.engagement_store.engagement_id == engagement
+
+
+def _ollama_refused(request: httpx.Request) -> httpx.Response:
+    try:
+        raise ConnectionRefusedError(10061, "actively refused")
+    except ConnectionRefusedError as exc:
+        raise httpx.ConnectError(f"refused {request.url}") from exc
+
+
+def _ollama_timed_out(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout(f"timed out {request.url}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler, detail",
+    [
+        (
+            _ollama_refused,
+            "Couldn't reach Ollama at http://ollama.test:11434 (connection refused).",
+        ),
+        (
+            _ollama_timed_out,
+            "Couldn't reach Ollama at http://ollama.test:11434 (timed out).",
+        ),
+        (
+            lambda request: httpx.Response(
+                401, text="private-test-body Authorization: Bearer private-test-key"
+            ),
+            "Ollama at http://ollama.test:11434 returned HTTP 401 Unauthorized "
+            "for its model list.",
+        ),
+        (
+            lambda request: httpx.Response(200, json={"models": []}),
+            "No selectable models were returned. Check the provider and retry.",
+        ),
+    ],
+)
+async def test_model_catalog_failure_reports_its_sanitized_cause(
+    session: WebKerkovSession,
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Any,
+    detail: str,
+) -> None:
+    client_type = httpx.Client
+    monkeypatch.setattr(
+        "kerkov.providers.ollama_provider.httpx.Client",
+        lambda **kwargs: client_type(**kwargs, transport=httpx.MockTransport(handler)),
+    )
+    candidate = OllamaProvider(
+        "http://operator:private-test-pass@ollama.test:11434/private-test-path",
+        "llama3",
+    )
+    monkeypatch.setattr(
+        provider_runtime, "create_provider_from_name", lambda *args: candidate
+    )
+    old = session.provider
+
+    event = await request(session, "models", provider="ollama")
+
+    assert event["type"] == "provider.selection_error"
+    assert event["payload"]["operation"] == "models"
+    assert event["payload"]["detail"] == detail
+    assert "private-test" not in str(event)
+    assert session.provider is old
 
 
 @pytest.mark.asyncio

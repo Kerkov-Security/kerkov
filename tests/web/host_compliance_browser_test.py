@@ -39,16 +39,20 @@ def emit(page, event_type, payload):
         emit_socket(page, event_type, payload)
 
 
-def open_compliance(page: Page):
+def open_compliance(page: Page, *, configure=False):
     entries, rows = profile_fixture()
     snapshot(page, entries)
     page.locator("#compliance-tab").click()
     expect(page.locator("#compliance-view")).to_be_visible()
+    if configure:
+        page.locator("#compliance-customize").click()
+        page.locator("#compliance-profile-options > summary").click()
     return entries, rows
 
 
 def connect(page: Page):
-    page.locator("#compliance-connection summary").click()
+    if not page.locator("#compliance-connection").evaluate("node => node.open"):
+        page.locator("#compliance-connection summary").click()
     for name, value in {
         "user": "audit",
         "port": "2222",
@@ -131,6 +135,18 @@ def review_saved_preview(page: Page):
     page.locator("#compliance-review-apply").click()
 
 
+def show_failed_assessment(page: Page):
+    record = saved_preview(page)
+    record.update(status="attention", before={"counts": {"passed": 3, "failed": 1}})
+    record["request"]["action"] = "assess"
+    emit_socket(
+        page,
+        "compliance.snapshot",
+        {"context_id": "context-1", "runs": [record]},
+    )
+    return record
+
+
 def _create_mock_access(port=2222, entry_id=40, **fields):
     return {
         "id": entry_id,
@@ -162,7 +178,7 @@ def emit_access(page, candidates, request=None):
 
 def test_known_ssh_access_is_retrieved_and_used_without_retyping(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     emit_access(page, [_create_mock_access()])
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("root")
     expect(page.locator('#compliance-form [name="port"]')).to_have_value("2222")
@@ -179,17 +195,17 @@ def test_known_ssh_access_is_retrieved_and_used_without_retyping(dashboard: Page
 
 def test_multiple_container_ports_need_an_explicit_choice(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     emit_access(page, [_create_mock_access(), _create_mock_access(2233, 41)])
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("")
-    page.locator("#compliance-connection summary").click()
+    expect(page.locator("#compliance-access-select")).to_be_visible()
     page.locator("#compliance-access-select").select_option("41")
     expect(page.locator('#compliance-form [name="port"]')).to_have_value("2233")
 
 
 def test_access_lookup_never_overwrites_manual_connection_edits(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     emit_access(page, [_create_mock_access()])
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("audit")
@@ -202,7 +218,7 @@ def test_access_lookup_never_overwrites_manual_connection_edits(dashboard: Page)
 
 def test_late_access_reply_cannot_cross_engagements(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     old = last_request(page, "inventory.ssh_access")
     entries, _ = profile_fixture()
     snapshot(page, entries, context_id="replacement-engagement")
@@ -212,9 +228,8 @@ def test_late_access_reply_cannot_cross_engagements(dashboard: Page):
 
 def test_find_known_access_reads_existing_memory_without_scanning(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     emit_access(page, [])
-    page.locator("#compliance-connection summary").click()
     page.locator("#compliance-access-find").click()
     message = last_request(page, "compliance.run")["message"]
     assert "use recall" in message and "kind='ssh'" in message
@@ -225,7 +240,7 @@ def test_find_known_access_reads_existing_memory_without_scanning(dashboard: Pag
 
 def test_access_refresh_is_not_lost_while_an_older_lookup_is_pending(dashboard: Page):
     page = dashboard
-    entries, _ = open_compliance(page)
+    entries, _ = open_compliance(page, configure=True)
     old = last_request(page, "inventory.ssh_access")
     snapshot(page, entries)
     emit_access(page, [], request=old)
@@ -259,7 +274,7 @@ def test_compliance_workflow_and_host_profiles_link_to_it(dashboard: Page):
 
 def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     expect(page.locator("#compliance-custom")).to_be_hidden()
     expect(page.locator('[data-compliance-baseline="linux-accounts"]')).to_contain_text(
         "4 checks · fixes included"
@@ -286,10 +301,10 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
 def test_assessment_never_requests_remediation(dashboard: Page, baseline):
     page = dashboard
     page.locator("#message-input").fill("My unfinished draft")
-    open_compliance(page)
+    open_compliance(page, configure=True)
     page.locator(f'[data-compliance-baseline="{baseline}"]').click()
     connect(page)
-    page.get_by_role("button", name="Assess asset", exact=True).click()
+    page.get_by_role("button", name="Scan host", exact=True).click()
     request = last_request(page, "compliance.run")
     assert request["workflow_request"]["action"] == "assess"
     assert request["workflow_request"]["remediation"] is None
@@ -311,11 +326,12 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
     dashboard: Page,
 ):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     page.locator('[data-compliance-baseline="ssh-essentials"]').click()
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("audit")
-    page.get_by_role("button", name="Preview changes", exact=True).click()
+    show_failed_assessment(page)
+    page.get_by_role("button", name="Preview fixes", exact=True).click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["action"] == "preview"
     assert request["baseline_id"] == "ssh-essentials"
@@ -324,8 +340,8 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
 
 def test_connection_validation_and_custom_host_alias(dashboard: Page):
     page = dashboard
-    open_compliance(page)
-    page.locator('#compliance-form button[type="submit"]').click()
+    open_compliance(page, configure=True)
+    page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
     assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-connection")).to_have_attribute("open", "")
     for name, value in {
@@ -343,7 +359,7 @@ def test_connection_validation_and_custom_host_alias(dashboard: Page):
         "host_alias": "all",
     }.items():
         page.locator(f'#compliance-form [name="{name}"]').fill(value)
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
     assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-status")).to_contain_text("single host alias")
     page.locator('#compliance-form [name="host_alias"]').fill("server_one")
@@ -357,7 +373,7 @@ def test_connection_clears_on_identity_change_and_results_clear_on_engagement_re
     dashboard: Page,
 ):
     page = dashboard
-    entries, rows = open_compliance(page)
+    entries, rows = open_compliance(page, configure=True)
     connect(page)
     entries[0]["entry"]["value"] = "replacement.example.com"
     snapshot(page, entries)
@@ -370,7 +386,7 @@ def test_connection_clears_on_identity_change_and_results_clear_on_engagement_re
 
 def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     review_saved_preview(page)
     page.locator('#compliance-form button[type="submit"]').click()
@@ -385,7 +401,7 @@ def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Pag
 
 def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     page.locator('[data-compliance-baseline="custom"]').click()
     page.locator("#compliance-custom summary").click()
@@ -398,7 +414,7 @@ def test_custom_assessment_ignores_unused_remediation_fields(dashboard: Page):
 
 def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     page.locator('[data-compliance-baseline="openscap"]').click()
     expect(page.locator("#compliance-custom")).to_be_hidden()
@@ -426,7 +442,7 @@ def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
 def test_existing_project_identity_and_dependencies_are_visible(dashboard: Page, width):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     card = page.locator('[data-compliance-baseline="custom"]')
     expect(card).to_contain_text("Existing InSpec project")
@@ -464,11 +480,160 @@ def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, them
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
-    open_compliance(page)
+    open_compliance(page, configure=True)
+    headings = [
+        page.locator(f"#{heading}").bounding_box()
+        for heading in (
+            "compliance-assets-heading",
+            "compliance-baseline-heading",
+            "compliance-launch-heading",
+        )
+    ]
+    assert headings[0]["y"] < headings[1]["y"] < headings[2]["y"]
+    assert page.locator(
+        ".compliance-main-actions button:visible"
+    ).all_text_contents() == [
+        "Customize",
+        "Find assessment details",
+    ]
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     page.evaluate("window.testSocket.close()")
     expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
     expect(page.locator("#compliance-add-asset")).to_be_disabled()
+    assert sent(page, "compliance.run") == []
+
+
+@pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
+def test_clean_setup_discovers_access_before_offering_assessment(
+    dashboard: Page, tmp_path, width, theme
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+    open_compliance(page)
+    expect(page.locator("#compliance-baselines button:visible")).to_have_count(2)
+    expect(page.locator("#compliance-projects button:visible")).to_have_count(2)
+    expect(page.locator("#compliance-profile-search")).to_be_hidden()
+    expect(page.locator('[name="private_key_file"]')).to_be_hidden()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
+    expect(page.locator("#compliance-discover")).to_be_visible()
+    expect(page.locator("#compliance-profile-name")).to_have_text(
+        "Linux account protection"
+    )
+    previous = last_request(page, "inventory.ssh_access")
+    page.locator("#compliance-discover").click()
+    request = last_request(page, "compliance.run")
+    assert "workflow_request" not in request
+    assert "use recall" in request["message"]
+    assert "do not start/stop containers, scan, authenticate" in request["message"]
+    emit(page, "user.message.complete", {"message_id": request["message_id"]})
+    assert last_request(page, "inventory.ssh_access") != previous
+    emit_access(page, [_create_mock_access()])
+    expect(page.locator("#compliance-settings-status")).to_contain_text(
+        "Ready to assess"
+    )
+    expect(page.locator("#compliance-discover")).to_be_hidden()
+    expect(page.locator('[data-compliance-action="assess"]')).to_be_visible()
+    assert not page.locator("#compliance-advanced").evaluate("node => node.open")
+    assert len(sent(page, "compliance.run")) == 1
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(
+        path=str(tmp_path / f"clean-compliance-{width}.png"), full_page=True
+    )
+    page.locator('[data-compliance-action="assess"]').click()
+    assessment = last_request(page, "compliance.run")["workflow_request"]
+    assert assessment["action"] == "assess"
+    assert assessment["scan"]["user"] == "root"
+    assert assessment["remediation"] is None
+
+
+@pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
+def test_customize_keeps_connection_edits_and_selected_profile(dashboard, width, theme):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+    open_compliance(page)
+    page.locator('[data-compliance-baseline="ssh-essentials"]').click()
+    page.locator("#compliance-customize").click()
+    expect(page.locator("#compliance-customize-heading")).to_be_focused()
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "true"
+    )
+    expect(page.locator('[name="private_key_file"]')).to_be_visible()
+    connect(page)
+    page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-customize")).to_be_focused()
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "false"
+    )
+    expect(page.locator('[name="private_key_file"]')).to_be_hidden()
+    expect(
+        page.locator('[data-compliance-baseline="ssh-essentials"]')
+    ).to_have_attribute("aria-pressed", "true")
+    page.locator("#compliance-customize").click()
+    expect(page.locator('[name="private_key_file"]')).to_have_value("/keys/audit key")
+    assert sent(page, "compliance.run") == []
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+
+
+@pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
+def test_profile_filters_preserve_selection_and_connection(
+    dashboard: Page, tmp_path, width, theme
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+    open_compliance(page, configure=True)
+    connect(page)
+    selected = page.locator('[data-compliance-baseline][aria-pressed="true"]')
+    baseline_id = selected.get_attribute("data-compliance-baseline")
+    page.locator("#compliance-profile-source").select_option("local")
+    expect(page.locator("[data-compliance-baseline]:visible")).to_have_count(2)
+    expect(page.locator("#compliance-community-heading")).to_be_hidden()
+    page.locator("#compliance-profile-search").fill("no matching profile")
+    expect(page.locator("#compliance-profile-empty")).to_be_visible()
+    page.locator("#compliance-profile-clear").click()
+    expect(page.locator("#compliance-profile-search")).to_be_focused()
+    expect(selected).to_have_attribute("data-compliance-baseline", baseline_id)
+    expect(page.locator('[name="user"]')).to_have_value("audit")
+    page.locator("#compliance-profile-source").select_option("community")
+    expect(page.locator("[data-compliance-baseline]:visible")).to_have_count(0)
+    expect(page.locator("[data-compliance-project]:visible")).not_to_have_count(0)
+    page.locator("#compliance-profile-source").select_option("all")
+    assert sent(page, "compliance.run") == []
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.locator("#compliance-view").evaluate("node => node.scrollTop = 0")
+    page.screenshot(path=str(tmp_path / f"compliance-setup-{width}.png"))
+
+
+def test_setup_status_opens_first_missing_assessment_setting(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    expect(page.locator("#compliance-settings-status")).to_contain_text(
+        "Let Kerkov find the connection details"
+    )
+    page.locator("#compliance-complete-settings").click()
+    expect(page.locator('[name="user"]')).to_be_focused()
+    connect_fields = {
+        "user": "audit",
+        "private_key_file": "/keys/audit",
+        "known_hosts_file": "/keys/trusted",
+    }
+    for name, value in connect_fields.items():
+        page.locator(f'[name="{name}"]').fill(value)
+    expect(page.locator("#compliance-settings-status")).to_contain_text(
+        "Ready to assess"
+    )
+    expect(page.locator("#compliance-complete-settings")).to_be_hidden()
+    page.locator('[name="port"]').fill("0")
+    expect(page.locator("#compliance-settings-status")).to_contain_text(
+        "Review the missing details"
+    )
+    page.locator('[name="port"]').fill("22")
+    page.locator('[data-compliance-baseline="custom"]').click()
+    page.locator("#compliance-complete-settings").click()
+    expect(page.locator('[name="profile"]')).to_be_focused()
     assert sent(page, "compliance.run") == []
 
 
@@ -478,9 +643,12 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
 ):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     before = page.locator("#message-stream").inner_text()
+    record = saved_preview(page)
+    record.update(status="running", stage="assessment")
+    record["request"]["action"] = "assess"
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")
     assert request["context_id"]
@@ -489,6 +657,8 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
         "user.message.accepted",
         {"message_id": request["message_id"], "stoppable": True},
     )
+    emit_socket(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    assert not page.locator("#compliance-setup").evaluate("node => node.open")
     emit(page, "tool.start", {"name": "compliance_scan", "params": {}})
     expect(page.locator("#compliance-status")).to_have_text("Assessing baseline…")
     emit(
@@ -526,7 +696,7 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
 
 def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     page.locator('[data-compliance-action="assess"]').click()
     page.evaluate("window.testSocket.close()")
@@ -543,7 +713,7 @@ def test_custom_preview_keeps_original_profile_path_for_apply(dashboard: Page):
     from kerkov.core.compliance.workflows import WorkflowRequest
 
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     page.locator('[data-compliance-baseline="custom"]').click()
     page.locator("#compliance-custom summary").click()
@@ -578,13 +748,15 @@ def test_custom_preview_keeps_original_profile_path_for_apply(dashboard: Page):
 
 def test_apply_requires_a_reviewed_preview(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
-    page.locator('#compliance-form button[type="submit"]').click()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
+    page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
     assert sent(page, "compliance.run") == []
-    expect(page.locator("#compliance-status")).to_contain_text("Preview changes first")
+    expect(page.locator("#compliance-status")).to_contain_text("Preview fixes first")
+    expect(page.locator("#compliance-status")).to_be_visible()
     review_saved_preview(page)
-    expect(page.locator("#compliance-controls")).to_contain_text("passwd-protected")
+    expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
     expect(page.locator("#compliance-controls")).to_contain_text("failed")
     expect(page.locator("#compliance-controls")).to_contain_text("unassessed")
     page.locator('#compliance-form button[type="submit"]').click()
@@ -592,6 +764,49 @@ def test_apply_requires_a_reviewed_preview(dashboard: Page):
     assert request["preview_id"] == "a" * 32
     assert request["action"] == "apply"
     assert request["scan"]["host"] == "example.com"
+
+
+def test_fix_actions_follow_failed_scan_and_selected_profile(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    preview = page.locator('[data-compliance-action="preview"]')
+    apply = page.locator('#compliance-form button[type="submit"]')
+    expect(preview).to_be_hidden()
+    expect(apply).to_be_hidden()
+    record = show_failed_assessment(page)
+    expect(page.locator("#compliance-result-preview")).to_be_visible()
+    expect(apply).to_be_hidden()
+    page.locator("#compliance-setup > summary").click()
+    expect(preview).to_be_visible()
+    page.locator('[data-compliance-baseline="ssh-essentials"]').click()
+    expect(preview).to_be_hidden()
+    page.locator('[data-compliance-baseline="linux-accounts"]').click()
+    expect(preview).to_be_visible()
+    record.update(status="passed", before={"counts": {"passed": 4, "failed": 0}})
+    emit_socket(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    expect(preview).to_be_hidden()
+    expect(apply).to_be_hidden()
+    expect(page.locator("#compliance-result-preview")).to_be_hidden()
+    assert sent(page, "compliance.run") == []
+
+
+def test_errored_scan_does_not_offer_remediation(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    record.update(
+        status="attention", before={"counts": {"passed": 0, "failed": 0, "error": 1}}
+    )
+    record["request"]["action"] = "assess"
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    expect(page.locator("#compliance-result-preview")).to_be_hidden()
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
+    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
 
 
 @pytest.mark.parametrize(
@@ -609,7 +824,7 @@ def test_apply_requires_a_reviewed_preview(dashboard: Page):
 )
 def test_outcome_is_rendered_from_the_server_record(dashboard: Page, status, title):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     record = saved_preview(page)
     record["status"] = status
@@ -623,7 +838,7 @@ def test_saved_results_restore_with_controls_evidence_and_safe_reassessment(
 ):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     record = saved_preview(page)
     record.update(
@@ -643,6 +858,7 @@ def test_saved_results_restore_with_controls_evidence_and_safe_reassessment(
         "Linux account protection"
     )
     expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
+    page.locator("#compliance-run-details > summary").click()
     page.get_by_role("button", name="before evidence", exact=True).click()
     evidence = last_request(page, "compliance.evidence")
     assert evidence["run_id"] == record["id"]
@@ -676,7 +892,7 @@ def test_failed_reassessment_does_not_attach_next_manual_assessment(
     dashboard: Page, failure
 ):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     record = saved_preview(page)
     record["status"] = "interrupted"
@@ -695,7 +911,9 @@ def test_failed_reassessment_does_not_attach_next_manual_assessment(
         page.evaluate(
             "() => { inventoryPanel.startWorkflow = window.originalStartWorkflow; }"
         )
-    else:
+        page.locator("#compliance-setup > summary").click()
+    if failure == "validation":
+        expect(page.locator("#compliance-setup")).to_have_attribute("open", "")
         page.locator('#compliance-form [name="user"]').fill("audit")
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]
@@ -704,7 +922,7 @@ def test_failed_reassessment_does_not_attach_next_manual_assessment(
 
 def test_reassessment_is_disabled_without_prepared_profile(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     record = saved_preview(page)
     record.update(status="failed", plan={})
@@ -716,7 +934,7 @@ def test_reassessment_is_disabled_without_prepared_profile(dashboard: Page):
 
 def test_python_installation_is_an_explicit_restored_option(dashboard: Page):
     page = dashboard
-    open_compliance(page)
+    open_compliance(page, configure=True)
     connect(page)
     option = page.locator('#compliance-form [name="bootstrap_python"]')
     expect(option).not_to_be_checked()
@@ -726,3 +944,130 @@ def test_python_installation_is_an_explicit_restored_option(dashboard: Page):
     page.locator('#compliance-form button[type="submit"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["bootstrap_python"] is True
+
+
+@pytest.mark.parametrize(
+    "field", ["compliance-project-url", "compliance-profile-search"]
+)
+def test_profile_inputs_never_apply_fixes_on_enter(dashboard: Page, field):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    review_saved_preview(page)
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_enabled()
+    page.locator("#compliance-customize").click()
+    if not page.locator("#compliance-profile-options").evaluate("node => node.open"):
+        page.locator("#compliance-profile-options > summary").click()
+    page.locator(f"#{field}").fill(
+        "https://github.com/example/profile" if field.endswith("url") else "Linux"
+    )
+    page.locator(f"#{field}").press("Enter")
+    assert sent(page, "compliance.run") == []
+
+
+def test_customize_can_filter_and_close_without_a_host(dashboard: Page):
+    page = dashboard
+    snapshot(page, [])
+    page.locator("#compliance-tab").click()
+    page.locator("#compliance-customize").click()
+    page.locator("#compliance-profile-options > summary").click()
+    page.locator("#compliance-profile-search").fill("Linux")
+    page.locator("#compliance-profile-source").select_option("builtin")
+    expect(page.locator('[name="user"]')).to_be_disabled()
+    page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-customize")).to_be_focused()
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "false"
+    )
+
+
+def test_done_clears_hidden_profile_filters(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    page.locator("#compliance-profile-search").fill("no matching profile")
+    page.locator("#compliance-profile-source").select_option("local")
+    expect(page.locator("#compliance-profile-empty")).to_be_visible()
+    page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-profile-empty")).to_be_hidden()
+    expect(page.locator('[data-compliance-baseline="linux-accounts"]')).to_be_visible()
+    expect(page.locator("#compliance-profile-search")).to_have_value("")
+    expect(page.locator("#compliance-profile-source")).to_have_value("all")
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+@pytest.mark.parametrize("has_saved_run", [False, True])
+def test_completion_preserves_feedback_without_a_result_or_when_stopped(
+    dashboard: Page, stopped, has_saved_run
+):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")
+    if has_saved_run:
+        emit_socket(
+            page, "compliance.updated", {"context_id": "context-1", "run": record}
+        )
+    emit(
+        page,
+        "user.message.complete",
+        {"message_id": request["message_id"], "stopped": stopped},
+    )
+    expected = (
+        "Workflow stopped."
+        if stopped
+        else (
+            ""
+            if has_saved_run
+            else "Workflow finished. Results are available to the conversation."
+        )
+    )
+    expect(page.locator("#compliance-status")).to_have_text(expected)
+
+
+def test_preview_check_mode_warning_is_visible_by_both_actions(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    show_failed_assessment(page)
+    warning = page.get_by_text(
+        "Preview fixes uses Ansible check mode, which can still make changes. "
+        "Tool approvals still apply.",
+        exact=True,
+    )
+    expect(page.locator("#compliance-result-preview")).to_be_visible()
+    expect(warning.filter(visible=True)).to_have_count(1)
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator('[data-compliance-action="preview"]')).to_be_visible()
+    expect(
+        page.locator("#compliance-form").get_by_text(
+            "which can still make changes", exact=False
+        )
+    ).to_be_visible()
+
+
+def test_opening_setup_preserves_explicit_host_selection(dashboard: Page):
+    page = dashboard
+    entries, _ = open_compliance(page, configure=True)
+    connect(page)
+    show_failed_assessment(page)
+    entries.append(
+        {
+            **entries[0],
+            "id": 9,
+            "entry": {
+                "kind": "domain",
+                "value": "other.example.com",
+                "name": "Other host",
+            },
+        }
+    )
+    snapshot(page, entries)
+    page.evaluate("inventoryPanel.compliance.selectResource(9)")
+    page.locator("#compliance-setup > summary").click()
+    expect(page.locator("#compliance-selection")).to_contain_text("Other host")
+    expect(page.locator('[data-compliance-asset="9"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    assert sent(page, "compliance.run") == []

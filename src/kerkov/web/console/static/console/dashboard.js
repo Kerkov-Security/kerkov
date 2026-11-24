@@ -155,8 +155,21 @@ function renderSavedHistory(payload, prepend = false) {
   const previousTop = stream.scrollTop;
   stream.querySelector('.history-earlier')?.remove();
   const fragment = document.createDocumentFragment();
+  let toolGroup = null;
   for (const message of payload.messages || []) {
-    const labels = { user: "You", assistant: "Kerkov", tool: "Tool output" };
+    if (message.role === "tool") {
+      if (!toolGroup) {
+        toolGroup = createActivityGroup(true);
+        fragment.append(toolGroup);
+      }
+      toolGroup.querySelector(".activity-events").append(savedToolActivity(message));
+      // An unknown outcome may have changed the target; never hide it.
+      if (message.status === "unknown") toolGroup.open = true;
+      updateActivitySummary(toolGroup);
+      continue;
+    }
+    toolGroup = null;
+    const labels = { user: "You", assistant: "Kerkov" };
     const role = Object.hasOwn(labels, message.role) ? message.role : "assistant";
     const article = appendMessage(role, labels[role], message.content, message.html);
     const notes = [
@@ -189,6 +202,23 @@ function renderSavedHistory(payload, prepend = false) {
   stream.scrollTop = prepend ? previousTop + stream.scrollHeight - previousHeight : stream.scrollHeight;
 }
 
+const SAVED_TOOL_TITLES = {
+  succeeded: "Tool finished",
+  failed: "Tool failed",
+  unknown: "Tool outcome unknown",
+  not_completed: "Tool not completed",
+};
+
+function savedToolActivity(message) {
+  const status = Object.hasOwn(SAVED_TOOL_TITLES, message.status) ? message.status : "not_completed";
+  const name = typeof message.tool_name === "string" && message.tool_name ? `: ${message.tool_name}` : "";
+  const content = String(message.content || "");
+  const detail = message.truncated
+    ? `${content}\n[Preview clipped. The full result remains in the saved engagement.]`
+    : content;
+  return createActivityRow(`${SAVED_TOOL_TITLES[status]}${name}`, status !== "succeeded", detail, status === "failed");
+}
+
 function safeJson(value) {
   try {
     return JSON.stringify(value, null, 2);
@@ -212,6 +242,54 @@ function appendMessage(kind, label, text, html) {
   stream.append(article);
   scrollToLatest();
   return article;
+}
+
+// The answer to a typed command: in the conversation, but not the model's voice
+// and not folded into the activity feed with background events.
+function appendCommandReply(title, { body = "", meta = "", failed = false } = {}) {
+  if (welcomeState) {
+    welcomeState.hidden = true;
+  }
+  const card = document.createElement("article");
+  card.className = "command-reply";
+  card.dataset.failed = String(failed);
+  card.setAttribute("aria-label", title);
+
+  const head = document.createElement("header");
+  head.className = "command-reply-head";
+  const heading = document.createElement("strong");
+  heading.className = "command-reply-title";
+  heading.textContent = title;
+  head.append(heading);
+  if (meta) {
+    const summary = document.createElement("span");
+    summary.className = "command-reply-meta";
+    summary.textContent = meta;
+    head.append(summary);
+  }
+  card.append(head);
+
+  const content = typeof body === "string" ? (body ? textElement("p", body) : null) : body;
+  if (content) {
+    content.classList.add("command-reply-body");
+    card.append(content);
+  }
+  stream.append(card);
+  scrollToLatest();
+  return card;
+}
+
+function textElement(tag, text) {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  return element;
+}
+
+// Only a command typed into the composer answers with a card, and only with the
+// events the server tagged as its reply: a picker change made while the command
+// is still running, or a refused picker request, stays activity.
+function answersTypedCommand(payload) {
+  return Boolean(pendingSubmission?.typedCommand) && payload.reply_to === pendingSubmission.id;
 }
 
 // Client-authored notices also use the assistant kind, so only a payload carrying
@@ -358,6 +436,33 @@ function isFollowingLatest() {
 
 function appendActivity(text, idle = false, detail = "", failed = false) {
   const followLatest = isFollowingLatest();
+  const row = createActivityRow(text, idle, detail, failed);
+  let group = stream.lastElementChild;
+  if (!group || !group.classList.contains("activity-group") || group.classList.contains("saved-activity")) {
+    group = createActivityGroup();
+    stream.append(group);
+  }
+  group.querySelector(".activity-events").append(row);
+  trimActivity();
+  updateActivitySummary(group);
+  if (followLatest) {
+    scrollToLatest();
+  }
+}
+
+// Saved groups belong to the restored transcript, so live trimming skips them.
+function createActivityGroup(saved = false) {
+  const group = document.createElement("details");
+  group.className = saved ? "activity-group saved-activity" : "activity-group";
+  const summary = document.createElement("summary");
+  const events = document.createElement("div");
+  events.className = "activity-events";
+  group.append(summary, events);
+  return group;
+}
+
+// Detail can be target-controlled tool output; it is only ever set as text.
+function createActivityRow(text, idle = false, detail = "", failed = false) {
   if (welcomeState) {
     welcomeState.hidden = true;
   }
@@ -389,22 +494,7 @@ function appendActivity(text, idle = false, detail = "", failed = false) {
   } else {
     row.append(dot, label);
   }
-  let group = stream.lastElementChild;
-  if (!group || !group.classList.contains("activity-group")) {
-    group = document.createElement("details");
-    group.className = "activity-group";
-    const summary = document.createElement("summary");
-    const events = document.createElement("div");
-    events.className = "activity-events";
-    group.append(summary, events);
-    stream.append(group);
-  }
-  group.querySelector(".activity-events").append(row);
-  trimActivity();
-  updateActivitySummary(group);
-  if (followLatest) {
-    scrollToLatest();
-  }
+  return row;
 }
 
 function updateActivitySummary(group) {
@@ -605,7 +695,7 @@ function syncControls() {
     engineState.textContent = "Working";
   } else if (sessionReady) {
     engineState.textContent = idleEngineState;
-  } else if (socketIsOpen()) {
+  } else if (socketIsOpen() || socket?.readyState === WebSocket.CONNECTING) {
     engineState.textContent = "Starting";
   } else {
     engineState.textContent = "Offline";
@@ -645,7 +735,7 @@ function setMode(modeId, modeName) {
 }
 
 function trimActivity() {
-  const rows = stream.querySelectorAll(":scope > .activity-group > .activity-events > .activity-item");
+  const rows = stream.querySelectorAll(":scope > .activity-group:not(.saved-activity) > .activity-events > .activity-item");
   for (let index = 0; index < rows.length - MAX_ACTIVITY_ITEMS; index += 1) {
     const events = rows[index].parentElement;
     const group = events.parentElement;
@@ -734,19 +824,23 @@ function runClientCommand(name) {
   resizeInput();
   commandSuggestions.close();
   if (name === "/help") {
+    appendMessage("user", "You", name);
     renderCommandHelp();
   }
 }
 
 function renderCommandHelp() {
-  const lines = ["Commands you can type in the composer:", ""];
+  const list = document.createElement("dl");
+  list.className = "command-help";
   for (const command of commandSuggestions.commands) {
-    lines.push(`${command.name} — ${command.summary}`);
+    list.append(textElement("dt", command.name), textElement("dd", command.summary));
     for (const arg of command.args) {
-      lines.push(`    ${command.name} ${arg.value} — ${arg.summary}`);
+      const term = textElement("dt", `${command.name} ${arg.value}`);
+      term.className = "command-help-arg";
+      list.append(term, textElement("dd", arg.summary));
     }
   }
-  appendMessage("assistant", "Kerkov", lines.join("\n"));
+  appendCommandReply("Commands", { meta: "Type these in the composer", body: list });
 }
 
 function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null } = {}) {
@@ -822,7 +916,11 @@ function handleSocketEvent(data) {
   }
 
   if (data.type.startsWith("mcp.")) {
-    if (data.type === "mcp.result") appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    if (data.type === "mcp.result" && answersTypedCommand(payload)) {
+      appendCommandReply(payload.title, mcpPanel.commandReply(payload));
+    } else if (data.type === "mcp.result") {
+      appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    }
     mcpPanel.handleEvent(data.type, payload);
     return;
   }
@@ -854,6 +952,7 @@ function handleSocketEvent(data) {
 
   if (data.type === "session.ready") {
     sessionReady = true;
+    setSocketState("Online", "online");
     agentsPanel.setConnected(true);
     idleEngineState = payload.provider_ready ? "Connected" : "Provider needed";
     idleApprovalState = payload.approval_mode || "normal";
@@ -907,6 +1006,8 @@ function handleSocketEvent(data) {
   if (data.type === "user.message.accepted") {
     if (pendingSubmission && pendingSubmission.id === payload.message_id) {
       pendingSubmission.canStop = payload.stoppable === true;
+      // Only local commands are unstoppable, and a workflow is never one.
+      pendingSubmission.typedCommand = payload.stoppable === false && pendingSubmission.showInConversation && !pendingSubmission.workflow;
       syncControls();
       if (pendingSubmission.showInConversation) {
         appendMessage("user", "You", pendingSubmission.message);
@@ -1036,7 +1137,11 @@ function handleSocketEvent(data) {
 
   if (data.type === "mode.info") {
     setMode(payload.current, payload.name);
-    appendActivity(`Mode: ${payload.name}`, false, payload.description);
+    if (answersTypedCommand(payload)) {
+      appendCommandReply(`Mode: ${payload.name}`, { body: payload.description });
+    } else {
+      appendActivity(`Mode: ${payload.name}`, false, payload.description);
+    }
     return;
   }
 
@@ -1050,12 +1155,10 @@ function handleSocketEvent(data) {
     setMode(payload.to, payload.name);
     tokenState.textContent = "0";
     stream.replaceChildren();
-    appendMessage(
-      "assistant",
-      "Kerkov",
-      `Mode switched to ${payload.name}. The previous conversation was cleared.`,
-    );
-    appendActivity(`Mode switched to ${payload.name}`, false, payload.description);
+    appendCommandReply(`Mode switched to ${payload.name}`, {
+      meta: "The previous conversation was cleared.",
+      body: payload.description,
+    });
     return;
   }
 
@@ -1068,8 +1171,7 @@ function handleSocketEvent(data) {
     inventoryPanel.refresh();
     tokenState.textContent = "0";
     stream.replaceChildren();
-    appendMessage("assistant", "Kerkov", "Conversation history cleared.");
-    appendActivity("Session cleared");
+    appendCommandReply("Conversation cleared", { body: "History and approvals granted this session were reset." });
     return;
   }
 
@@ -1079,7 +1181,11 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "settings.info" || data.type === "settings.changed") {
-    appendActivity(payload.title, false, payload.detail);
+    if (answersTypedCommand(payload)) {
+      appendCommandReply(payload.title, { body: payload.detail || "" });
+    } else {
+      appendActivity(payload.title, false, payload.detail);
+    }
     // Approval (and autonomy, which moves approval too) owns a status chip.
     if (typeof payload.approval_mode === "string") {
       idleApprovalState = payload.approval_mode;
@@ -1103,7 +1209,11 @@ function handleSocketEvent(data) {
   if (data.type === "error") {
     // Errors carry no request id; a refused change must not swallow the next click.
     requestedApprovalMode = null;
-    appendActivity(payload.detail || "Unknown socket error", true);
+    if (answersTypedCommand(payload)) {
+      appendCommandReply("Command failed", { body: payload.detail || "Unknown error", failed: true });
+    } else {
+      appendActivity(payload.detail || "Unknown socket error", true);
+    }
   }
 }
 
@@ -1122,10 +1232,7 @@ function connectSocket() {
   setSocketState("Connecting");
   syncControls();
 
-  socket.addEventListener("open", () => {
-    setSocketState("Online", "online");
-    syncControls();
-  });
+  socket.addEventListener("open", syncControls);
 
   socket.addEventListener("error", () => {
     setSocketState("Error", "offline");

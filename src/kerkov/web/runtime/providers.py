@@ -19,6 +19,7 @@ from kerkov.providers.codex.auth import (
     normalize_codex_state_path,
 )
 from kerkov.providers.codex.provider import CodexProvider
+from kerkov.providers.model_catalog import ModelCatalogError
 from kerkov.providers.workers import ProviderWorkersBusy, run_provider_worker
 from kerkov.web.runtime.provider_history import prepare_history
 
@@ -347,7 +348,10 @@ class WebProviders:
         return candidate
 
     def _list_models(self, candidate: BaseLLMProvider) -> list[str]:
-        models = candidate.list_models()
+        try:
+            models = candidate.list_models()
+        except ModelCatalogError as exc:
+            raise ProviderSelectionError(str(exc)) from None
         if not isinstance(models, list) or len(models) > MAX_MODEL_COUNT:
             raise ProviderSelectionError("The provider returned an invalid model list.")
         if catalog_exposes_credential(models, candidate.api_key):

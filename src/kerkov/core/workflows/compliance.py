@@ -36,6 +36,7 @@ from kerkov.core.compliance.workflows import (
     new_record,
     now,
 )
+from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import ApprovalStrategy
 from kerkov.core.docker_command import SubprocessCommandRunner, docker_preflight_failure
 from kerkov.core.knowledge_base.models import RESOURCE_SECTIONS
@@ -48,6 +49,16 @@ from kerkov.tools.compliance_scan_tool import ComplianceScanParams, ComplianceSc
 
 logger = get_logger(__name__)
 PERSISTENCE_FAILURE = "Run history could not be saved. Review local evidence and storage availability before starting further changes."
+
+
+def controller_blockers(config: ConfigManager) -> list[str]:
+    """Controller conditions that stop every compliance run before it starts."""
+    blockers = []
+    if not config.execution_enabled:
+        blockers.append("Enable EXECUTION_ENABLED before running assessments")
+    if sys.platform == "win32":
+        blockers.append("Use Linux, macOS or WSL as the compliance controller")
+    return blockers
 
 
 class ComplianceRun(ApprovalStrategy, WorkflowRun):
@@ -131,10 +142,9 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
             await asyncio.shield(self._writer)
 
     async def prepare(self) -> None:
-        if not self.context.config.execution_enabled:
-            raise ValueError("Enable EXECUTION_ENABLED before running assessments")
-        if sys.platform == "win32":
-            raise ValueError("Use Linux, macOS or WSL as the compliance controller")
+        blockers = controller_blockers(self.context.config)
+        if blockers:
+            raise ValueError(blockers[0])
         ledger = self.context.ledger()
         if ledger is None:
             raise ValueError("The engagement inventory is unavailable")

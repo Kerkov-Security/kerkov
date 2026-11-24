@@ -46,11 +46,12 @@ from kerkov.core.knowledge_base.models import (
     LedgerSection,
     Resource,
 )
+from kerkov.core.knowledge_base.resources import resource_dedup_key
 from kerkov.core.logging.logger_factory import get_logger
 
 logger = get_logger("EngagementKB")
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Keeps IPs, ports, paths, hashes and CVE ids intact as phrase queries; drops
 # the punctuation that would otherwise be read as FTS5 operator syntax.
@@ -253,7 +254,83 @@ class EngagementKnowledgeBase:
                 CREATE INDEX IF NOT EXISTS idx_ledger_engagement
                     ON ledger_entries(engagement_id);
                 """)
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # Idempotent, so a peer that migrated after our version read is harmless.
+            self._canonicalize_url_resources(conn)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+
+    def _canonicalize_url_resources(self, conn: sqlite3.Connection) -> None:
+        """Re-key URL resources saved before scheme-default ports were dropped.
+
+        Rows that now share an identity fold into the oldest, as alias folding
+        does in `add_ledger_entry`, and their connections follow the survivor.
+        """
+        rekeyed: Set[str] = set()
+        for row in conn.execute(
+            "SELECT * FROM ledger_entries WHERE section IN ('assets', 'targets') "
+            "ORDER BY id"
+        ).fetchall():
+            current = conn.execute(
+                "SELECT * FROM ledger_entries WHERE id = ?", (row["id"],)
+            ).fetchone()
+            if current is None:
+                continue
+            entry = _decode_entry(current["entry"])
+            if entry.get("kind") != "url":
+                continue
+            try:
+                value = Resource.from_stored(entry).value
+            except (ValidationError, ValueError):
+                continue
+            dedup_key = resource_dedup_key("url", value)
+            if dedup_key == current["dedup_key"] and value == entry["value"]:
+                continue
+            holder = conn.execute(
+                "SELECT * FROM ledger_entries WHERE section = ? AND dedup_key = ? "
+                "AND id != ?",
+                (current["section"], dedup_key, current["id"]),
+            ).fetchone()
+            folded = sorted(
+                (r for r in (current, holder) if r is not None),
+                key=lambda r: int(r["id"]),
+            )
+            survivor, stale = folded[0], folded[1:]
+            merged: Dict[str, Any] = {}
+            for folded_row in folded:
+                merged = _merge_dicts(merged, _decode_entry(folded_row["entry"]))
+            merged["value"] = value
+            artifact_ref = next(
+                (r["artifact_ref"] for r in folded if r["artifact_ref"] is not None),
+                None,
+            )
+            for stale_row in stale:
+                conn.execute(
+                    "DELETE FROM ledger_entries WHERE id = ?", (stale_row["id"],)
+                )
+            conn.execute(
+                "UPDATE ledger_entries SET entry = ?, dedup_key = ?, artifact_ref = ?, "
+                "updated_at = ? WHERE id = ?",
+                (
+                    json.dumps(merged, default=str),
+                    dedup_key,
+                    artifact_ref,
+                    datetime.now(timezone.utc).isoformat(),
+                    survivor["id"],
+                ),
+            )
+            for stale_row in stale:
+                self._retire_resource_connections(conn, stale_row["id"], survivor["id"])
+            rekeyed.add(dedup_key)
+        # Connections attach to the oldest role of an identity, as on save.
+        for dedup_key in rekeyed:
+            twins = conn.execute(
+                "SELECT id FROM ledger_entries WHERE section IN ('assets', 'targets') "
+                "AND dedup_key = ? ORDER BY id",
+                (dedup_key,),
+            ).fetchall()
+            for twin in twins[1:]:
+                self._retire_resource_connections(conn, twin["id"], twins[0]["id"])
 
     def close(self) -> None:
         with self._lock:

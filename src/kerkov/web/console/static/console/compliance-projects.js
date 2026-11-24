@@ -217,6 +217,7 @@ class ComplianceProjects {
       const button = this.host.node("button", "compliance-baseline", "");
       button.type = "button";
       button.dataset.complianceProject = item.id;
+      button.dataset.profileSource = "community";
       button.setAttribute("aria-pressed", String(item.url === this.selected && this.host.baselineId === "remote"));
       const cached = this.cache.get(item.url);
       button.append(this.host.node("span", "compliance-baseline-meta", `${item.publisher} · ${item.platform}`), this.host.node("strong", "", item.name), this.host.node("span", "", item.description), this.host.node("span", "compliance-baseline-count", cached ? `Downloaded · ${this.revision(cached)}` : "Not downloaded · assessment profile"));
@@ -224,6 +225,7 @@ class ComplianceProjects {
       button.addEventListener("click", () => this.select(item.url));
       return button;
     }));
+    this.host.filterProfiles();
     const pending = Array.from(this.requests.values()).some(request => request.sequence === this.sequence && request.type !== "compliance.projects");
     this.host.el("compliance-project-url").disabled = !this.inventory.connected || !!this.preparation;
     this.host.el("compliance-project-validate").disabled = !this.inventory.connected || pending || !!this.preparation;

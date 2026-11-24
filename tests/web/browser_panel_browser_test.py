@@ -288,11 +288,11 @@ def test_session_mode_picker_is_explicit_and_defaults_to_fresh(dashboard: Page):
 
 
 def test_tab_opened_before_session_ready_loads_preview_when_ready(
-    dashboard_before_ready: Page,
+    connecting_dashboard: Page,
 ):
-    page = dashboard_before_ready
+    page = connecting_dashboard
     page.locator("#browser-tab").click()
-    expect(page.locator("#browser-status")).to_contain_text("Disconnected")
+    expect(page.locator("#browser-status")).to_contain_text("Connecting")
     assert sent(page, "browser.preview") == []
     emit(page, "session.ready", {"provider_ready": True})
     assert _request(page)["type"] == "browser.preview"

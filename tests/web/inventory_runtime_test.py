@@ -450,6 +450,117 @@ async def test_invalid_inventory_requests_never_start_engagement(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resource,detail",
+    [
+        (
+            {"kind": "url", "value": "https://user:hunter2@example.test/"},
+            "URL must not include embedded credentials.",
+        ),
+        (
+            {"kind": "url", "value": "javascript:alert(1)"},
+            "URL must be an absolute http:// or https:// URL.",
+        ),
+        (
+            {"kind": "ip", "value": "10.0.0.1/24"},
+            "IP address must be a valid IPv4 or IPv6 address.",
+        ),
+        (
+            {"kind": "domain", "value": "10.0.0.1"},
+            "Use kind 'ip' for an IP address.",
+        ),
+        (
+            {"kind": "domain", "value": "example.com", "environment": "e" * 129},
+            "Environment must be at most 128 characters.",
+        ),
+        (
+            {
+                "kind": "domain",
+                "value": "example.com",
+                "tags": [f"tag-{index}" for index in range(21)],
+            },
+            "Use at most 20 tags.",
+        ),
+        (
+            {"kind": "domain", "value": "example.com", "notes": "n" * 4097},
+            "Notes must be at most 4,096 characters.",
+        ),
+        (
+            {"kind": "domain", "value": "example.com", "environment": "prod\x00"},
+            "Environment cannot contain control characters.",
+        ),
+        (
+            {"kind": "host", "value": "example.com"},
+            "Choose a domain, IP address, URL, or repository type.",
+        ),
+    ],
+)
+async def test_invalid_resources_report_the_specific_failure(
+    session: WebKerkovSession, resource: dict, detail: str
+) -> None:
+    events = await _request(session, "save", section="assets", resource=resource)
+    assert events[-1]["type"] == "inventory.error"
+    assert events[-1]["payload"]["detail"] == detail
+    assert session.engagement_store.engagement_id is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_resource_details_are_all_reported_by_field(
+    session: WebKerkovSession,
+) -> None:
+    events = await _request(
+        session,
+        "save",
+        section="targets",
+        resource={
+            "kind": "domain",
+            "value": "example.com",
+            "environment": "e" * 129,
+            "tags": ["ok", "bad,tag"],
+        },
+    )
+    assert events[-1]["payload"]["detail"] == (
+        "Environment must be at most 128 characters. "
+        "Tags must be 1–64 characters without commas or control characters."
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resource",
+    [
+        {"kind": "url", "value": "https://operator:hunter2@example.test/"},
+        {"kind": "url", "value": "https://example.test:hunter2/"},
+        {"kind": "ip", "value": "hunter2"},
+        {"kind": "domain", "value": "hunter2_" + "a" * 70},
+    ],
+)
+async def test_invalid_resource_errors_never_echo_the_submitted_value(
+    session: WebKerkovSession, resource: dict
+) -> None:
+    events = await _request(session, "save", section="assets", resource=resource)
+    assert events[-1]["type"] == "inventory.error"
+    assert events[-1]["payload"]["detail"]
+    assert "hunter2" not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_edits_report_the_specific_failure(session: WebKerkovSession) -> None:
+    snapshot = await _save(session)
+    row = snapshot["entries"][0]
+    events = await _request(
+        session,
+        "save",
+        section="assets",
+        entry_id=row["id"],
+        expected_updated_at=row["updated_at"],
+        resource={"kind": "domain", "value": "example.com", "tags": ["a,b"]},
+    )
+    assert events[-1]["type"] == "inventory.error"
+    assert events[-1]["payload"]["detail"].startswith("Tags must be 1–64 characters")
+
+
+@pytest.mark.asyncio
 async def test_busy_saves_reject_and_lists_remain_available(
     session: WebKerkovSession,
 ) -> None:

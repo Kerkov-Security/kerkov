@@ -16,6 +16,7 @@ class InventoryPanel {
     this.retiredContexts = new Set();
     this.selectedId = null;
     this.connected = false;
+    this.hasConnected = false;
     this.busy = false;
     this.available = false;
     this.availabilityDetail = "Connecting to inventory…";
@@ -141,6 +142,7 @@ class InventoryPanel {
   setState({ connected, busy }) {
     const wasConnected = this.connected;
     this.connected = connected;
+    this.hasConnected ||= connected;
     this.busy = busy;
     if (!connected && wasConnected) {
       clearTimeout(this.refreshTimer);
@@ -518,7 +520,7 @@ class InventoryPanel {
     for (const row of this.rows.values()) row.disabled = this.saving;
     this.setText("inventory-save", this.saving ? "Saving…" : this.editing?.entryId ? "Save changes" : "Add resource");
     this.el("inventory-evidence-open").disabled = !!this.evidenceRequest || (!this.evidence && (!this.connected || !this.available));
-    this.setText("inventory-summary-status", !this.connected ? "Offline · last received inventory"
+    this.setText("inventory-summary-status", !this.connected ? (this.hasConnected ? "Offline · last received inventory" : "Connecting to inventory…")
       : !this.available ? this.availabilityDetail : this.busy ? "Updates appear as Kerkov works." : "Shared with this engagement’s agents.");
   }
 }

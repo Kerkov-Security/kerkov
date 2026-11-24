@@ -67,16 +67,4 @@ class NvidiaProvider(OpenAICompatibleProvider):
             return False
 
     def list_models(self) -> List[str]:
-        try:
-            with httpx.Client(
-                base_url=self.base_url,
-                headers=self._headers,
-                timeout=self.timeout_seconds,
-            ) as client:
-                response = client.get("/models")
-                self._raise_for_status(response)
-                data = response.json()
-            return [item["id"] for item in data.get("data", []) if item.get("id")]
-        except Exception as exc:
-            self.logger.error(f"Failed to list NVIDIA NIM models: {exc}")
-            return []
+        return self._list_model_ids(self.timeout_seconds)

@@ -7,9 +7,14 @@ from typing import TYPE_CHECKING, Any
 
 from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
-from kerkov.core.workflows.compliance import ComplianceRun, merge_history
+from kerkov.core.workflows.compliance import (
+    ComplianceRun,
+    controller_blockers,
+    merge_history,
+)
 from kerkov.core.workflows.compliance import read_evidence as read_artifact
 from kerkov.core.workflows.context import WorkflowContext, WorkflowObserver
+from kerkov.core.workflows.registry import COMPLIANCE_WORKFLOW, mode_mismatch_notice
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.output import WebOutputSink
 
@@ -20,15 +25,30 @@ if TYPE_CHECKING:
 class WebWorkflowObserver(WorkflowObserver):
     """Publish run projections to the browser's compliance panel."""
 
-    def __init__(self, bus: WebEventBus, context_id: Any) -> None:
+    def __init__(self, bus: WebEventBus, context_id: Any, message_id: str) -> None:
         self.bus = bus
         self.context_id = context_id
+        self.message_id = message_id
 
     def updated(self, projection: dict[str, Any]) -> None:
         self.bus.emit(
             "compliance.updated",
-            {"context_id": self.context_id, "run": projection},
+            {
+                "context_id": self.context_id,
+                "message_id": self.message_id,
+                "run": projection,
+            },
         )
+
+
+def compliance_readiness(session: WebKerkovSession) -> dict[str, Any]:
+    """What the compliance view shows before a run; `prepare()` still enforces it."""
+    return {
+        "blockers": controller_blockers(session.config),
+        "mode_notice": mode_mismatch_notice(
+            COMPLIANCE_WORKFLOW, session.mode_manager.current_mode.mode_type
+        ),
+    }
 
 
 def build_run(
@@ -45,7 +65,9 @@ def build_run(
         approval=lambda: session.approval_strategy,
         closed=lambda: session._closed,
         sink=WebOutputSink(panel, stream=False),
-        observer=WebWorkflowObserver(session.bus, session.inventory.context_id),
+        observer=WebWorkflowObserver(
+            session.bus, session.inventory.context_id, message_id
+        ),
     )
     return ComplianceRun(context, WorkflowRequest.model_validate(request))
 

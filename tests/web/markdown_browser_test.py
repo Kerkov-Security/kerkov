@@ -73,6 +73,5 @@ def test_payloads_without_html_and_user_text_stay_plain(dashboard: Page):
     expect(page.locator(".message.user")).to_contain_text("**my** <b>request</b>")
     expect(page.locator("#message-stream .markdown")).to_have_count(0)
     expect(page.locator("#message-stream b")).to_have_count(0)
-    expect(page.locator(".message.assistant").first).to_have_text(
-        "KerkovConversation history cleared."
-    )
+    expect(page.locator(".message.assistant")).to_have_count(1)
+    expect(page.locator(".command-reply-title")).to_have_text("Conversation cleared")

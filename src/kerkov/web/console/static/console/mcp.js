@@ -63,27 +63,60 @@ class McpPanel {
   show(payload) {
     this.config.textContent = payload.config_path ? `Config: ${payload.config_path}` : "";
     this.config.hidden = !payload.config_path;
-    const servers = Array.isArray(payload.servers) ? payload.servers : [];
-    this.list.replaceChildren(...servers.map((server) => this.serverItem(server)));
-    for (const warning of Array.isArray(payload.warnings) ? payload.warnings : []) {
-      this.list.append(this.note(`mcp.json: ${warning}`, "mcp-warning"));
-    }
-    if (!payload.enabled) {
-      this.status.textContent = "MCP is disabled. Set MCP_ENABLED=true and restart Kerkov.";
-    } else if (payload.load_error) {
-      this.status.textContent = payload.load_error;
-    } else if (!servers.length) {
-      this.status.textContent = "No MCP servers configured. Add one to mcp.json or with /mcp add in the CLI.";
-    } else {
-      const connected = servers.filter((server) => server.state === "connected").length;
-      const tools = servers.reduce((total, server) => total + (server.tools?.length || 0), 0);
-      this.status.textContent = `${connected} of ${servers.length} server${servers.length === 1 ? "" : "s"} connected · ${tools} tool${tools === 1 ? "" : "s"}`;
-    }
+    this.list.replaceChildren(...this.serverRows(payload));
+    this.status.textContent = this.summary(payload);
   }
 
-  serverItem(server) {
+  // `/mcp` and `/mcp list` draw the status they carry with the panel's rows.
+  commandReply(payload) {
+    const failed = payload.failed === true;
+    if (payload.view !== "status" && payload.view !== "list") return { body: payload.detail || "", failed };
+    const status = payload.status || {};
+    const listing = payload.view === "list";
+    const body = document.createElement("div");
+    if (status.config_path) body.append(this.paragraph(`Config: ${status.config_path}`, "mcp-config-line"));
+    const servers = this.servers(status);
+    if (!servers.length) {
+      body.append(this.paragraph(this.summary(status)));
+      return { body, failed };
+    }
+    const list = document.createElement("ul");
+    list.className = "mcp-servers";
+    list.setAttribute("aria-label", "MCP servers");
+    const only = listing && typeof payload.server === "string" ? payload.server : null;
+    list.append(...this.serverRows(status, { only, open: listing }));
+    body.append(list);
+    return { meta: only === null ? this.summary(status) : "", body, failed };
+  }
+
+  servers(payload) {
+    return Array.isArray(payload.servers) ? payload.servers : [];
+  }
+
+  serverRows(payload, { only = null, open = false } = {}) {
+    const servers = this.servers(payload).filter((server) => only === null || server.key === only);
+    const rows = servers.map((server) => this.serverItem(server, open));
+    if (only !== null) return rows;
+    for (const warning of Array.isArray(payload.warnings) ? payload.warnings : []) {
+      rows.push(this.note(`mcp.json: ${warning}`, "mcp-warning"));
+    }
+    return rows;
+  }
+
+  summary(payload) {
+    const servers = this.servers(payload);
+    if (!payload.enabled) return "MCP is disabled. Set MCP_ENABLED=true and restart Kerkov.";
+    if (payload.load_error) return payload.load_error;
+    if (!servers.length) return "No MCP servers configured. Add one to mcp.json or with /mcp add in the CLI.";
+    const connected = servers.filter((server) => server.state === "connected").length;
+    const tools = servers.reduce((total, server) => total + (server.tools?.length || 0), 0);
+    return `${connected} of ${servers.length} server${servers.length === 1 ? "" : "s"} connected · ${tools} tool${tools === 1 ? "" : "s"}`;
+  }
+
+  serverItem(server, open = false) {
     const item = document.createElement("li");
     const details = document.createElement("details");
+    details.open = open;
     const summary = document.createElement("summary");
     const name = document.createElement("strong");
     name.textContent = server.key;
@@ -129,6 +162,13 @@ class McpPanel {
     if (state === "connected") return "is-ok";
     if (typeof state === "string" && (state.startsWith("failed") || state.startsWith("invalid"))) return "is-error";
     return "is-idle";
+  }
+
+  paragraph(text, className = "") {
+    const element = document.createElement("p");
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
   }
 
   note(text, className) {

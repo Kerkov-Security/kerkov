@@ -46,7 +46,11 @@ failure in both directions:
 The required fields per section are in the [`ledger` reference](../reference/tools/ledger.md#sections-and-their-identity-fields).
 Asset and target values are additionally validated and normalized per `kind`
 (IP canonicalization, IDNA domains, absolute repository paths, case-preserving URLs)
-by the shared `Resource` model.
+by the shared `Resource` model. A URL's scheme-default port (`:80` for `http`,
+`:443` for `https`) is dropped, so `https://example.test:443/` and
+`https://example.test/` are one resource; other ports stay in the identity.
+Opening a knowledge base saved before this rule re-keys its URL rows once and folds
+any that now coincide into the oldest, carrying their connections across.
 
 ## Merge, and how identity firms up
 

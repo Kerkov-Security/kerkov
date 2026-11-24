@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from playwright.sync_api import Page
 
 FAKE_SOCKET_SCRIPT = """class TestSocket extends EventTarget {
+  static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 3;
   constructor() {

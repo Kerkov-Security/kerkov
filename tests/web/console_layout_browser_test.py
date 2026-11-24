@@ -95,6 +95,77 @@ def test_expanded_console_fits_short_windows_without_clipping_the_composer(
         assert layout["pageOverflow"] > 0
 
 
+def request_approval(page: Page, index: int) -> None:
+    command = f"nmap -sV -p 1-1000 10.0.0.{index}"
+    emit(
+        page,
+        "approval.request",
+        {
+            "approval_id": f"approval-{index}",
+            "tool": "exec",
+            "params": {"command": command, "timeout": 120},
+            "call": f'exec(command="{command}", timeout=120)',
+            "allow_rule_choices": [
+                {
+                    "decision": "approve_exact",
+                    "label": "this exact call",
+                    "rule": f'exec: command == "{command}"',
+                }
+            ],
+        },
+    )
+
+
+def approval_layout(page: Page) -> dict[str, float]:
+    return page.evaluate("""() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const host = document.querySelector("#conversation-approval-host");
+      const buttons = [...host.querySelectorAll("button")].map(b => b.getBoundingClientRect());
+      return {
+        hostOverflow: host.scrollHeight - host.clientHeight,
+        hostTop: box("#conversation-approval-host").top,
+        hostBottom: box("#conversation-approval-host").bottom,
+        hostHeight: box("#conversation-approval-host").height,
+        trayBottom: box("#approval-tray").bottom,
+        buttonsBottom: Math.max(...buttons.map(b => b.bottom)),
+        composerTop: box("#composer").top,
+        composerBottom: box("#composer").bottom,
+        conversationHeight: box(".conversation").height,
+        conversationBottom: box(".conversation").bottom,
+      };
+    }""")
+
+
+@pytest.mark.parametrize("viewport", [(1440, 900), (1280, 720)])
+def test_single_approval_fits_without_scrolling_or_a_gap(
+    dashboard: Page, viewport: tuple[int, int]
+) -> None:
+    page = dashboard
+    page.set_viewport_size({"width": viewport[0], "height": viewport[1]})
+    request_approval(page, 1)
+    expect(page.locator("#approval-tray")).to_be_visible()
+
+    layout = approval_layout(page)
+    assert layout["hostOverflow"] <= 1
+    assert layout["buttonsBottom"] <= layout["hostBottom"]
+    assert layout["hostBottom"] - layout["trayBottom"] < 17
+    assert layout["composerTop"] - layout["hostBottom"] < 1
+    assert layout["composerBottom"] <= layout["conversationBottom"] + 1
+
+
+def test_queued_approvals_scroll_within_a_capped_tray(dashboard: Page) -> None:
+    page = dashboard
+    page.set_viewport_size({"width": 1440, "height": 900})
+    for index in range(5):
+        request_approval(page, index)
+    expect(page.locator("#approval-list > .approval")).to_have_count(5)
+
+    layout = approval_layout(page)
+    assert layout["hostOverflow"] > 0
+    assert layout["hostHeight"] <= layout["conversationHeight"] * 0.65 + 1
+    assert layout["composerBottom"] <= layout["conversationBottom"] + 1
+
+
 def test_conversation_follows_latest_after_layout_changes_in_another_view(
     dashboard: Page,
 ) -> None:
