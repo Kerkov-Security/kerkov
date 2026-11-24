@@ -42,7 +42,7 @@ Ten sections. Each has identity fields (marked `*`) that an `add` must supply.
 | `hosts` | Machines in scope | `ip*`, `hostname*` (at least one), `os`, `technologies`, `note` |
 | `services` | Listening services | `host*` (or `ip*`), `port*`, `protocol`, `service`, `version`, `technologies`, `note` |
 | `credentials` | Recovered credentials | `username*`, `host*` or `source*`, `secret`, `kind`, `validated` |
-| `findings` | Confirmed weaknesses | `title*`, `severity`, `host`, `description`, `status`, `remediation`, `note` |
+| `findings` | Confirmed weaknesses | `title*`, `check_id`, `severity`, `host`, `description`, `status`, `remediation`, `note` |
 | `flags` | Captured flags | `value*`, `label`, `host` |
 | `next_steps` | Planned work | `step*` |
 
@@ -165,7 +165,13 @@ with both `ip` and `hostname` is found by either, and services and findings
 recorded by hostname and by IP merge once a hosts entry records that hostname with
 exactly one IP — including rows already recorded before that host entry. A
 hostname recorded against several IPs links none of them, and nothing is inferred
-from DNS or similar names. Findings with different titles stay separate.
+from DNS or similar names.
+
+A finding with a `check_id` (a CVE or scanner check/template id) is identified by
+that check and its host, so a reworded title still merges; the same finding
+recorded earlier by title alone folds in too. Same-titled findings with different
+`check_id`s stay separate, and without a `check_id` different titles are
+different findings.
 
 For the fact sections, ownership and evidence merge as follows:
 

@@ -42,6 +42,7 @@ from kerkov.core.knowledge_base.ledger_identity import (
     HostClaims,
     addressed_names,
     addresses,
+    finding_checks,
     host_independent_key,
     host_keyed_identity,
     ledger_identity,
@@ -135,6 +136,24 @@ def _merge_rows(rows: Sequence[sqlite3.Row]) -> Dict[str, Any]:
 
 def _row_addresses(section: LedgerSection, row: sqlite3.Row) -> Set[str]:
     return addresses(addressed_names(section, _decode_entry(row["entry"])))
+
+
+def _consistent_rows(
+    matched: Sequence[sqlite3.Row],
+    exact_rows: Sequence[sqlite3.Row],
+    written: Set[str],
+    values: Callable[[sqlite3.Row], Set[str]],
+) -> List[sqlite3.Row]:
+    """The indirect matches that add no second value of a distinguishing field.
+
+    Values the write and its exact matches already hold are authoritative; with
+    none, the indirect matches must agree among themselves or none fold.
+    """
+    known = written.union(*(values(row) for row in exact_rows))
+    if known:
+        return [row for row in matched if values(row) <= known]
+    found = set().union(*(values(row) for row in matched))
+    return list(matched) if len(found) <= 1 else []
 
 
 def _merge_entry(stored_json: str, incoming: Dict[str, Any]) -> Dict[str, Any]:
@@ -1277,7 +1296,8 @@ class EngagementKnowledgeBase:
         A stored row answers to every form its merged fields link and to the
         names hosts entries pin to one address, not only to its `dedup_key`.
         Exact key matches always fold, since the key is unique; a match through
-        another name is dropped when it would join two different IP addresses.
+        another name is dropped when it would join two different IP addresses,
+        or two findings with different `check_id`s.
         """
         claims = self._host_claims(conn, write=(section, payload))
         wanted = set(keys) | host_keyed_identity(section, payload, claims)
@@ -1292,13 +1312,21 @@ class EngagementKnowledgeBase:
             and host_keyed_identity(section, _decode_entry(row["entry"]), claims)
             & wanted
         ]
-        known = addresses(addressed_names(section, payload)).union(
-            *(_row_addresses(section, row) for row in exact_rows)
+        matched = _consistent_rows(
+            matched,
+            exact_rows,
+            addresses(addressed_names(section, payload)),
+            lambda row: _row_addresses(section, row),
         )
-        if known:
-            return [row for row in matched if _row_addresses(section, row) <= known]
-        found = set().union(*(_row_addresses(section, row) for row in matched))
-        return matched if len(found) <= 1 else []
+        if section is LedgerSection.FINDINGS:
+            # A title alias must not join two findings with different checks.
+            matched = _consistent_rows(
+                matched,
+                exact_rows,
+                finding_checks(payload),
+                lambda row: finding_checks(_decode_entry(row["entry"])),
+            )
+        return matched
 
     def _refold_host_dependents(
         self, conn: sqlite3.Connection, host_id: int, now: str

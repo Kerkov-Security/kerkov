@@ -151,7 +151,13 @@ def ledger_identity(
     elif section is LedgerSection.FINDINGS:
         title = field_text(entry, "title")
         host = field_text(entry, "host")
+        check_id = field_text(entry, "check_id")
         identity = f"{title}@{host}" if title else ""
+        if check_id:
+            # A stable check outlives rewording; the title form is the same
+            # finding recorded before its check was known.
+            aliases.append(identity)
+            identity = f"check:{check_id}@{host}"
     elif section is LedgerSection.FLAGS:
         identity = field_text(entry, "value")
     else:  # NEXT_STEPS
@@ -259,4 +265,11 @@ def host_independent_key(section: LedgerSection, entry: Dict[str, Any]) -> str:
     """What else must match, besides the machine, for two rows to be one fact."""
     if section is LedgerSection.SERVICES:
         return _norm(field_text(entry, "port"))
-    return _norm(field_text(entry, "title"))
+    check_id = _norm(field_text(entry, "check_id"))
+    return f"check:{check_id}" if check_id else _norm(field_text(entry, "title"))
+
+
+def finding_checks(entry: Dict[str, Any]) -> Set[str]:
+    """The finding's normalized `check_id`, if it has one."""
+    check_id = _norm(field_text(entry, "check_id"))
+    return {check_id} if check_id else set()

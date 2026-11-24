@@ -93,8 +93,19 @@ exact key still fold, as before. Merged rows are keyed on what the merged entry
 says, so a hostname-only write cannot re-key a host its IP identifies.
 
 Folding is one-way: removing the hosts entry that linked two names does not split
-rows already merged. Findings still match on their title, so a reworded title is
-a second row.
+rows already merged.
+
+### Findings: a stable check ahead of the title
+
+A finding's free-text title is the weakest identity in the ledger:
+`SMB signing disabled` and `SMB signing not required` are one weakness. A finding
+may therefore carry a `check_id` — a CVE or scanner check/template id the model
+supplies — and is then keyed on `check_id@host` instead of `title@host`. The title
+form stays an alias, so a finding recorded before its check was known folds into
+the checked row, and a later title-only write still enriches it. A title alias
+never joins two findings with different `check_id`s; a title-only write that
+matches several checked findings joins none of them. Without a `check_id`, a
+reworded title is still a second row.
 
 SSH credentials with an explicit `port` keep that port in their identity. Two
 containers published on different ports of the same host therefore retain
