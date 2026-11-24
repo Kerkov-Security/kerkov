@@ -335,6 +335,184 @@ class HostIdentityTest(_LedgerTestCase):
         self.assertEqual(len(self._entries(LedgerSection.SERVICES)), 2)
 
 
+class FindingCheckIdTest(_LedgerTestCase):
+    """A finding's `check_id` identifies it ahead of its free-text title."""
+
+    def _findings(self):
+        return _run(self.ledger.list(LedgerSection.FINDINGS))
+
+    def test_reworded_title_with_the_same_check_merges(self):
+        first = self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "SMB signing disabled",
+                "check_id": "smb-signing",
+                "host": "10.0.0.5",
+            },
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "SMB signing not required",
+                "check_id": "SMB-Signing",
+                "host": "10.0.0.5",
+                "severity": "medium",
+            },
+        )
+
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["title"], "SMB signing not required")
+        self.assertEqual(findings[0].entry["severity"], "medium")
+
+    def test_check_learned_later_folds_into_the_titled_finding(self):
+        first = self._add(
+            LedgerSection.FINDINGS, {"title": "Log4Shell", "host": "app01"}
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Log4Shell", "check_id": "CVE-2021-44228", "host": "app01"},
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Log4j JNDI RCE", "check_id": "CVE-2021-44228", "host": "app01"},
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Log4j JNDI RCE", "host": "app01", "status": "exploited"},
+        )
+
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["check_id"], "CVE-2021-44228")
+        self.assertEqual(findings[0].entry["status"], "exploited")
+
+    def test_same_title_with_different_checks_stays_distinct(self):
+        for check_id in ("CVE-2023-0286", "CVE-2022-3602"):
+            self._add(
+                LedgerSection.FINDINGS,
+                {"title": "Outdated OpenSSL", "check_id": check_id, "host": "web"},
+            )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Outdated OpenSSL", "host": "web", "note": "which one?"},
+        )
+
+        findings = self._findings()
+        self.assertEqual(len(findings), 3)
+        checked = [f for f in findings if f.entry.get("check_id")]
+        self.assertTrue(all("note" not in f.entry for f in checked))
+
+    def test_check_matches_across_a_linked_hosts_names(self):
+        first = self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Anonymous FTP", "check_id": "ftp-anon", "host": "files"},
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "FTP allows anonymous login",
+                "check_id": "ftp-anon",
+                "host": "10.0.0.8",
+            },
+        )
+        self.assertEqual(len(self._findings()), 2)
+
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.8", "hostname": "files"})
+        self.assertEqual([f.id for f in self._findings()], [first])
+
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "FTP anon",
+                "check_id": "ftp-anon",
+                "host": "files",
+                "severity": "high",
+            },
+        )
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["severity"], "high")
+
+    def test_linking_hosts_folds_a_title_only_finding_into_its_check(self):
+        first = self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "files"}
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Anonymous FTP", "check_id": "ftp-anon", "host": "10.0.0.8"},
+        )
+        self.assertEqual(len(self._findings()), 2)
+
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.8", "hostname": "files"})
+
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["check_id"], "ftp-anon")
+
+    def test_check_answers_to_a_stored_address(self):
+        first = self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "Anonymous FTP",
+                "check_id": "ftp-anon",
+                "host": "files",
+                "ip": "10.0.0.8",
+            },
+        )
+
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "FTP allows anonymous login",
+                "check_id": "ftp-anon",
+                "host": "10.0.0.8",
+                "severity": "high",
+            },
+        )
+
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["severity"], "high")
+
+    def test_linking_hosts_leaves_a_title_naming_two_checks(self):
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "Outdated OpenSSL", "host": "web", "note": "which one?"},
+        )
+        for check_id in ("CVE-2023-0286", "CVE-2022-3602"):
+            self._add(
+                LedgerSection.FINDINGS,
+                {
+                    "title": "Outdated OpenSSL",
+                    "check_id": check_id,
+                    "host": "10.0.0.9",
+                },
+            )
+
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.9", "hostname": "web"})
+
+        findings = self._findings()
+        self.assertEqual(len(findings), 3)
+        checked = [f for f in findings if f.entry.get("check_id")]
+        self.assertTrue(all("note" not in f.entry for f in checked))
+
+    def test_check_renders_in_the_injected_block(self):
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "Log4Shell",
+                "check_id": "CVE-2021-44228",
+                "host": "app01",
+                "severity": "critical",
+            },
+        )
+
+        block = _run(self.ledger.serialize())
+        self.assertIn("[critical] Log4Shell (CVE-2021-44228) @app01", block)
+        self.assertNotIn("check_id=", block)
+
+
 class HostIdentityProfileTest(_LedgerTestCase):
     """A fold across a machine's names keeps every name its rows were selected by."""
 

@@ -152,9 +152,18 @@ def ledger_identity(
         title = field_text(entry, "title")
         host = field_text(entry, "host")
         ip = field_text(entry, "ip")
+        check_id = field_text(entry, "check_id")
         identity = f"{title}@{host}" if title else ""
-        if title and host and ip and host != ip:
+        both_names = bool(host and ip and host != ip)
+        if title and both_names:
             aliases.append(f"{title}@{ip}")
+        if check_id:
+            # A stable check outlives rewording; the title form is the same
+            # finding recorded before its check was known.
+            aliases.append(identity)
+            if both_names:
+                aliases.append(f"check:{check_id}@{ip}")
+            identity = f"check:{check_id}@{host}"
     elif section is LedgerSection.FLAGS:
         identity = field_text(entry, "value")
     else:  # NEXT_STEPS
@@ -302,8 +311,34 @@ def host_keyed_identity(
     return keys
 
 
-def host_independent_key(section: LedgerSection, entry: Dict[str, Any]) -> str:
-    """What else must match, besides the machine, for two rows to be one fact."""
-    if section is LedgerSection.SERVICES:
-        return _norm(field_text(entry, "port"))
-    return _norm(field_text(entry, "title"))
+def same_fact_groups(
+    section: LedgerSection, entries: Sequence[Dict[str, Any]]
+) -> List[List[int]]:
+    """Indexes of one machine's entries grouped by the fact each records.
+
+    Services group by port and findings by `check_id`, else by title. A finding
+    without a `check_id` joins the check whose findings share its title, as a
+    write would, unless that title names more than one check.
+    """
+    groups: Dict[Tuple[str, str], List[int]] = defaultdict(list)
+    checks_by_title: Dict[str, Set[Tuple[str, str]]] = defaultdict(set)
+    for index, entry in enumerate(entries):
+        if section is LedgerSection.SERVICES:
+            groups[("port", _norm(field_text(entry, "port")))].append(index)
+            continue
+        title = _norm(field_text(entry, "title"))
+        check_id = _norm(field_text(entry, "check_id"))
+        key = ("check", check_id) if check_id else ("title", title)
+        groups[key].append(index)
+        if check_id:
+            checks_by_title[title].add(key)
+    for title, checks in checks_by_title.items():
+        if len(checks) == 1 and ("title", title) in groups:
+            groups[next(iter(checks))].extend(groups.pop(("title", title)))
+    return [sorted(indexes) for indexes in groups.values()]
+
+
+def finding_checks(entry: Dict[str, Any]) -> Set[str]:
+    """The finding's normalized `check_id`, if it has one."""
+    check_id = _norm(field_text(entry, "check_id"))
+    return {check_id} if check_id else set()

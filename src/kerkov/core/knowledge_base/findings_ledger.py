@@ -113,6 +113,7 @@ class FindingsLedger:
         LedgerSection.FINDINGS: (
             "severity",
             "title",
+            "check_id",
             "host",
             "note",
             "description",
@@ -480,6 +481,9 @@ class FindingsLedger:
         severity = _s(data, "severity")
         title = _s(data, "title")
         line = f"[{severity}] {title}".strip() if severity else title
+        check_id = _s(data, "check_id")
+        if check_id:
+            line = f"{line} ({check_id})"
         host = _s(data, "host")
         if host:
             line = f"{line} @{host}"

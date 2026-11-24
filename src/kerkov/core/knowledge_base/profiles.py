@@ -41,6 +41,7 @@ FACT_FIELDS = {
     ),
     LedgerSection.FINDINGS: (
         "title",
+        "check_id",
         "severity",
         "status",
         "host",

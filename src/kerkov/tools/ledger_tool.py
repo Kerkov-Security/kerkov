@@ -91,7 +91,10 @@ class LedgerToolParams(ToolParams):
         "one of ip/hostname; optional technologies; services {host*, port*, protocol, service, version, technologies, note}; "
         "credentials {username*, host*|source*, secret, kind, validated, port, private_key_file, known_hosts_file, sudo}; "
         "For SSH access use kind='ssh', exact host, explicit SSH port and existing controller-local key/known-hosts file references; never put key contents in file-reference fields. "
-        "findings {title*, severity, host, description, status, remediation, note}; flags {value*, label, host}; "
+        "findings {title*, check_id, severity, host, description, status, remediation, note}; "
+        "check_id is a stable identifier for the weakness such as a CVE or scanner "
+        "check/template id; reuse it so a reworded title still merges. "
+        "flags {value*, label, host}; "
         "next_steps {step*}.",
     )
     entry_id: Optional[int] = Field(
