@@ -3,7 +3,9 @@
 Separate from `kerkov_cli` so the message handlers it imports can catch this.
 """
 
-from typing import Any
+from typing import Any, Optional
+
+from kerkov.core.workflows.registry import WORKFLOW_DEFINITIONS, engagement_workflow
 
 
 class EngagementRestoreError(Exception):
@@ -27,3 +29,14 @@ def restored_setting(
             f"Engagement '{engagement_id}' records {label} '{saved}', which this "
             f"build does not have. Known values: {known}."
         ) from None
+
+
+def restored_workflow(saved: Optional[str], engagement_id: str) -> Optional[str]:
+    """Validate a saved engagement workflow name, or say what is wrong with it."""
+    if saved is None or engagement_workflow(saved) is not None:
+        return saved
+    known = [d.name for d in WORKFLOW_DEFINITIONS if d.engagement_scoped]
+    raise EngagementRestoreError(
+        f"Engagement '{engagement_id}' records workflow '{saved}', which this "
+        f"build does not have. Known values: {', '.join(known)}."
+    )

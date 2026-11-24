@@ -9,6 +9,7 @@ from rich.console import Console
 from kerkov.cli.input_parser import InputParser
 from kerkov.cli.messages.workflow_message import HANDLERS, WorkflowMessage
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore, new_record
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.session.mode_manager import ModeManager
 from kerkov.core.session.modes import ModeType
 from kerkov.core.workflows.registry import workflow_names
@@ -63,13 +64,14 @@ def test_every_registered_workflow_has_a_terminal_handler():
 def test_list_names_each_workflow_and_flags_an_inactive_role():
     text = _run(_create_mock_cli(ModeType.PURPLE), "/workflow")
     assert "compliance" in text and "Blue (not active)" in text
+    assert "ctf" in text and "Red (not active)" in text
     text = _run(_create_mock_cli(ModeType.BLUE), "/workflows list")
-    assert "Blue" in text and "not active" not in text
+    assert "Blue (not active)" not in text and "Red (not active)" in text
 
 
 def test_unknown_workflow_names_the_available_ones():
     text = _run(_create_mock_cli(), "/workflow recon runs")
-    assert "Unknown workflow 'recon'. Available: compliance." in text
+    assert "Unknown workflow 'recon'. Available: compliance, ctf." in text
 
 
 def test_runs_need_an_engagement_workspace():
@@ -117,3 +119,62 @@ def test_show_rejects_short_ambiguous_and_unknown_prefixes(tmp_path):
 def test_unknown_action_prints_usage(tmp_path):
     text = _run(_create_mock_cli(), "/workflow compliance frobnicate", tmp_path)
     assert "Use /workflow compliance runs" in text
+
+
+def _create_mock_ctf_cli(tmp_path, mode=ModeType.RED, provider=True):
+    cli = _create_mock_cli(mode)
+    store = EngagementStore(store_dir=tmp_path)
+
+    def engagement_workspace():
+        if store.engagement_id is None:
+            store.start_engagement(
+                mode=mode.value, model="m", verbosity="standard", approval_mode="normal"
+            )
+
+    cli.engagement_store = store
+    cli.engagement_workspace = engagement_workspace
+    cli.require_provider = lambda: provider
+    return cli
+
+
+def test_ctf_start_records_the_objective_on_the_engagement(tmp_path):
+    cli = _create_mock_ctf_cli(tmp_path)
+    assert "not active" in _run(cli, "/workflow ctf")
+    text = _run(cli, "/workflow ctf start")
+    assert "CTF objective active for this engagement" in text
+    assert "targets Red" not in text
+    assert cli.engagement_store.workflow == "ctf"
+    reader = EngagementStore(store_dir=tmp_path)
+    assert (
+        reader.load_engagement(cli.engagement_store.engagement_id).metadata.workflow
+        == "ctf"
+    )
+    assert "already active" in _run(cli, "/workflow ctf start")
+    assert "objective: active" in _run(cli, "/workflow ctf status")
+
+
+def test_ctf_start_outside_red_warns_and_proceeds(tmp_path):
+    cli = _create_mock_ctf_cli(tmp_path, mode=ModeType.PURPLE)
+    text = _run(cli, "/workflow ctf start")
+    assert "ctf targets Red; this engagement is in Purple" in text
+    assert cli.engagement_store.workflow == "ctf"
+
+
+def test_ctf_stop_clears_the_objective(tmp_path):
+    cli = _create_mock_ctf_cli(tmp_path)
+    assert "CTF is not active" in _run(cli, "/workflow ctf stop")
+    _run(cli, "/workflow ctf start")
+    text = _run(cli, "/workflow ctf stop")
+    assert "CTF objective stopped" in text
+    assert cli.engagement_store.workflow is None
+
+
+def test_ctf_start_needs_a_provider(tmp_path):
+    cli = _create_mock_ctf_cli(tmp_path, provider=False)
+    _run(cli, "/workflow ctf start")
+    assert cli.engagement_store.engagement_id is None
+
+
+def test_ctf_rejects_unknown_actions(tmp_path):
+    text = _run(_create_mock_ctf_cli(tmp_path), "/workflow ctf go now")
+    assert "Use /workflow ctf, /workflow ctf start or /workflow ctf stop." in text

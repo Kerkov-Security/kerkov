@@ -25,17 +25,37 @@ Both front ends read one list, the way they share `COMMAND_SPECS`. `/workflow`
 lists it, dispatches through it, and a test requires a terminal handler for every
 entry, so neither front end can offer a workflow the other lacks.
 
-Each definition declares a team role (Compliance is Blue). The role is
-**advisory**: running a workflow in another mode surfaces one warning and the run
-proceeds, because `/mode` retires the engagement and clears the conversation the
-workflow is running in.
+Each definition declares a team role (Compliance is Blue, CTF is Red). The role
+is **advisory**: running a workflow in another mode surfaces one warning and the
+run proceeds, because `/mode` retires the engagement and clears the conversation
+the workflow is running in.
+
+## Run and engagement scope
+
+A definition's `engagement_scoped` flag says how long its overlay applies.
+
+| Scope | Workflow | Overlay applies to | State |
+|---|---|---|---|
+| Run | Compliance | The turns of one gated run | The run record under `automation/compliance-runs/` |
+| Engagement | CTF | Every main turn until stopped | `workflow` in the engagement's JSONL metadata |
+
+`/workflow ctf start` starts the engagement if the conversation is empty, then
+writes `workflow: "ctf"` with `EngagementStore.update_workflow()`.
+`SessionKernel.build_loop_session()` reads `EngagementStore.workflow` and
+prepends that definition's overlay to the turn's transient prompts, so both front
+ends apply it without their own state. The store tracks the selected engagement:
+starting one clears the workflow, loading one restores it, and `detach()` drops
+it. `/clear`, `/mode` and resume need no extra reset (the CLI's `clear_history()`
+detaches the store for that reason). Resume validates the saved name and fails
+with `EngagementRestoreError` if it names no engagement-scoped workflow. Agents
+build their own `LoopSession`s and do not receive the overlay.
 
 ## Prompt layers
 
 | Layer | Content | Delivered as |
 |---|---|---|
 | Mode posture | `BASE_PROMPT` and the role overlay | System prompt, at engagement start |
-| Workflow objective | The definition's `overlay`: assess first, stop after execution failures, preview is never verification | A transient prompt for the run's turn only |
+| Workflow objective | The definition's `overlay`, e.g. Compliance's "assess first, preview is never verification" or CTF's flag objective and lab scope | A transient prompt: for a run's turn (Compliance), or for every main turn while active (CTF) |
 | Per-run plan | Scan and remediation arguments, selected Ansible profile (`ComplianceRun.plan_message()`) | A `context_only` user message |
 
 The split is static versus per-run. The overlay names no host, engagement ID or
@@ -44,6 +64,10 @@ Anthropic's last cache breakpoint, invalidates nothing. It is not added to the
 system prompt because the objective should stop applying when the run ends, and
 because both front ends compose the system prompt only for an empty history, so
 a workflow started mid-conversation could not reach it.
+
+The CTF overlay follows the same rule on every turn: the trailing tail is
+re-sent uncached, and the cached prefix is unchanged with or without it
+(`tests/providers/anthropic_caching_test.py`).
 
 Transient prompts no longer imply a one-shot invocation. The CLI's `--message`
 path sets `LoopSession.retry_deferred_execution` for its single "act, don't

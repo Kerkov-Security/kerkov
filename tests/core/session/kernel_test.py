@@ -1,12 +1,16 @@
 """SessionKernel.build_loop_session assembles a turn from shared state + ports."""
 
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Callable, List, Optional
 
 from kerkov.core.config_manager import ConfigManager
 from kerkov.core.conversation_engine import ApprovalStrategy, OutputSink, QuietSink
 from kerkov.core.credentials import get_credential_manager
+from kerkov.core.engagement.engagement_store import EngagementStore
 from kerkov.core.session import SessionKernel, build_session_state
+from kerkov.core.workflows.registry import CTF_WORKFLOW
 from kerkov.models.basic_models import LLMResponse, Message
 from kerkov.providers.base_provider import BaseLLMProvider
 from kerkov.tools.base_tool import BaseTool
@@ -92,6 +96,31 @@ class BuildLoopSessionTest(unittest.TestCase):
         # Defaults preserve the previous per-call behavior.
         self.assertEqual(session.transient_prompts, [])
         self.assertFalse(session.compaction_warning_shown)
+
+    def test_an_active_engagement_workflow_rides_every_turn(self):
+        kernel = _kernel()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = EngagementStore(store_dir=Path(tmp))
+            kernel.state.engagement_store = store
+            store.start_engagement(
+                mode="Red", model="m", verbosity="standard", approval_mode="normal"
+            )
+
+            def prompts() -> list:
+                return kernel.build_loop_session(
+                    history=[],
+                    tools=[],
+                    approval=_NullApproval(),
+                    output=QuietSink(),
+                    transient_prompts=["NUDGE"],
+                ).transient_prompts
+
+            self.assertEqual(prompts(), ["NUDGE"])
+            store.update_workflow("ctf")
+            # The objective comes first; per-call prompts follow it.
+            self.assertEqual(prompts(), [CTF_WORKFLOW.overlay, "NUDGE"])
+            store.update_workflow(None)
+            self.assertEqual(prompts(), ["NUDGE"])
 
     def test_requires_an_initialized_provider(self):
         config = ConfigManager(GOOGLE_API_KEY="test")

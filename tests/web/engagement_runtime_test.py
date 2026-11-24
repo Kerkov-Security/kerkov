@@ -137,6 +137,18 @@ async def test_invalid_id_preserves_current_state(session, invalid):
 
 
 @pytest.mark.asyncio
+async def test_resume_restores_the_engagement_workflow(session):
+    await session.initialize()
+    store, ident = saved(session)
+    store.update_workflow("ctf")
+    result = await request(session, "resume", engagement_id=ident)
+    assert result["workflow"] == "ctf"
+    assert session.engagement_store.workflow == "ctf"
+    await request(session, "new")
+    assert session.engagement_store.workflow is None
+
+
+@pytest.mark.asyncio
 async def test_resume_restores_yolo_by_default(session):
     await session.initialize()
     _, ident = saved(session, approval="yolo")
@@ -147,7 +159,9 @@ async def test_resume_restores_yolo_by_default(session):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["agent", "corrupt", "mode", "mismatch", "symlink"])
+@pytest.mark.parametrize(
+    "case", ["agent", "corrupt", "mode", "workflow", "mismatch", "symlink"]
+)
 async def test_unrestorable_engagement_does_not_retire_current(session, case):
     await session.initialize()
     session._apply_system_prompt_if_needed()
@@ -159,10 +173,10 @@ async def test_unrestorable_engagement_does_not_retire_current(session, case):
     path = store.store_dir / f"{ident}.jsonl"
     if case == "corrupt":
         path.write_text("{broken")
-    elif case in {"mode", "mismatch"}:
+    elif case in {"mode", "workflow", "mismatch"}:
         lines = path.read_text().splitlines()
         meta = json.loads(lines[0])
-        meta["mode" if case == "mode" else "id"] = "unknown"
+        meta["id" if case == "mismatch" else case] = "unknown"
         lines[0] = json.dumps(meta)
         path.write_text("\n".join(lines))
     elif case == "symlink":
