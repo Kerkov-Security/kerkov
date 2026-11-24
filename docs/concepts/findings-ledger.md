@@ -58,12 +58,50 @@ any that now coincide into the oldest, carrying their connections across.
 row instead of forking it. This is the normal growth path — IP first, OS later, a
 note later still.
 
-Identity itself firms up over time, so `_identity` returns not just a canonical
+Identity itself firms up over time, so `ledger_identity`
+(`src/kerkov/core/knowledge_base/ledger_identity.py`) returns not just a canonical
 `dedup_key` but *alias* keys: the hostname a host was first known by before its IP,
 the `source` a credential was recorded against before a `host`, the credential
 recorded before its `kind`. `add_ledger_entry` looks a row up under key *or* alias,
 folds duplicates into the oldest matching row, and promotes it to the canonical key.
 So learning more about a fact never creates a second copy of it.
+
+### One machine, several names
+
+Hosts, services and findings name a machine, and the same machine is often
+recorded once by IP and once by hostname. Those three sections therefore match on
+more than the write's own keys:
+
+- **A stored row answers to every form its merged fields link.** Once a host row
+  holds both `ip` and `hostname`, a later write naming either one finds it. Only one
+  `dedup_key` is stored, so this is computed from the stored entry at write time.
+- **Hosts rows pin hostnames to addresses.** When a hosts entry records a hostname
+  with exactly one IP, services and findings written under either name match each
+  other (`HostClaims`). A services write that states both `host` and `ip` contributes
+  its own pair while it is matched.
+- **A linking hosts write is retroactive.** When a hosts write leaves a row with
+  both names, services on the same port and findings with the same title that were
+  already split across those names fold into the oldest.
+- **A fold keeps every name.** [Resource profiles](#resource-profiles) select
+  services and findings by an exact `host` or `ip`, so a merged service or finding
+  keeps the hostname in `host` and the address in `ip` instead of letting the newest
+  write's form replace the other; both profiles still show it. A finding that gains
+  an `ip` this way also answers to that address. A fold through another name that
+  would still drop one — two hostnames recorded on one address — is skipped, and
+  the rows stay apart.
+
+The rule that relationships are never guessed still holds. A pair comes only from
+an entry that states both forms itself — no DNS lookup, no name similarity, and
+not from `resolves_to` connections, which belong to the resource sections. A
+hostname recorded against two addresses (round-robin DNS, a moved virtual host)
+pins to neither and stands alone, and a match through another name is dropped
+when it would join two different IP addresses. Rows that matched the write's
+exact key still fold, as before. Merged rows are keyed on what the merged entry
+says, so a hostname-only write cannot re-key a host its IP identifies.
+
+Folding is one-way: removing the hosts entry that linked two names does not split
+rows already merged. Findings still match on their title, so a reworded title is
+a second row.
 
 SSH credentials with an explicit `port` keep that port in their identity. Two
 containers published on different ports of the same host therefore retain

@@ -360,7 +360,7 @@ tool-execution loop with operator approval.
 - Ledger identity is required, not guessed: `identity_error()` rejects an `add`
   that cannot be identified, because a hash-fallback row never merges with its
   own later enrichment and host-less services would all collapse onto one port.
-  Identity firms up over time, so `_identity()` also returns alias keys and
+  Identity firms up over time, so `ledger_identity()` also returns alias keys and
   `add_ledger_entry` folds duplicates into the oldest row, whose `engagement_id`
   records the first contributor. Deleting an agent sub-run never removes ledger
   rows: the master may have enriched or acted on what the agent recorded. DNS

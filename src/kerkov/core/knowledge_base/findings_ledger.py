@@ -7,33 +7,26 @@ history, so a credential found forty messages ago survives summarization
 verbatim.
 
 The store is the engagement's `.kb.sqlite` (shared across the engagement tree);
-this class owns the domain logic on top of it: per-section identity for dedup,
-and a compact, byte-stable serialization.
+this class owns the domain logic on top of it: per-section identity for dedup
+(`ledger_identity`), and a compact, byte-stable serialization.
 """
 
-import hashlib
 import json
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from pydantic import ValidationError
-
 from kerkov.core.knowledge_base.connections import (
-    Connection,
     ConnectionWriteResult,
     project_resource_graph,
 )
 from kerkov.core.knowledge_base.containers import ContainerObservation
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
+from kerkov.core.knowledge_base.ledger_identity import field_text as _s
+from kerkov.core.knowledge_base.ledger_identity import ledger_identity
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
     LedgerEntry,
     LedgerSection,
     Resource,
-)
-from kerkov.core.knowledge_base.resources import resource_dedup_key
-from kerkov.core.knowledge_base.ssh_access import (
-    SSH_CREDENTIAL_KINDS,
-    normalize_ssh_port,
 )
 
 _SECTION_ORDER = (
@@ -68,134 +61,6 @@ LEDGER_HEADER = "=== FINDINGS LEDGER (working memory — kept verbatim) ==="
 # so an unbounded ledger would eventually fill the window with no way to
 # reclaim it. Roughly 4k tokens — 8% of the default 50k context.
 DEFAULT_MAX_INJECTED_BYTES = 16000
-
-
-def _s(entry: Dict[str, Any], key: str) -> str:
-    value = entry.get(key)
-    if value in (None, ""):
-        return ""
-    return str(value).strip()
-
-
-def _norm(value: str) -> str:
-    return value.lower().strip()
-
-
-def identity_error(section: LedgerSection, entry: Dict[str, Any]) -> Optional[str]:
-    """Why `entry` cannot be identified in `section`, or None if it can.
-
-    Dedup is only as good as the identity fields, and the failure is silent in
-    both directions: a host recorded without either name gets a content hash
-    that never merges with its later enrichment, and services without a host
-    would all collapse onto the same port. So identity is required up front
-    rather than guessed at merge time.
-    """
-    if section in (*RESOURCE_SECTIONS, LedgerSection.CONNECTIONS):
-        model = Connection if section is LedgerSection.CONNECTIONS else Resource
-        try:
-            model.model_validate(entry)
-        except ValidationError as exc:
-            error = exc.errors()[0]
-            field = ".".join(str(part) for part in error["loc"])
-            detail = f"{field}: " if field else ""
-            return f"Invalid {section.value} entry: {detail}{error['msg']}."
-    elif section is LedgerSection.CONTAINERS:
-        try:
-            ContainerObservation.model_validate(entry)
-        except ValidationError:
-            return "containers entries require a complete Docker observation."
-    elif section is LedgerSection.HOSTS:
-        if not (_s(entry, "ip") or _s(entry, "hostname")):
-            return "hosts entries need an 'ip' or a 'hostname'."
-    elif section is LedgerSection.SERVICES:
-        if not (_s(entry, "host") or _s(entry, "ip")):
-            return "services entries need a 'host' (or 'ip') to attach the port to."
-        if not _s(entry, "port"):
-            return "services entries need a 'port'."
-    elif section is LedgerSection.CREDENTIALS:
-        if not _s(entry, "username"):
-            return "credentials entries need a 'username'."
-        if not (_s(entry, "host") or _s(entry, "source")):
-            return (
-                "credentials entries need a 'host' or 'source' saying where "
-                "the credential is valid."
-            )
-    elif section is LedgerSection.FINDINGS:
-        if not _s(entry, "title"):
-            return "findings entries need a 'title'."
-    elif section is LedgerSection.FLAGS:
-        if not _s(entry, "value"):
-            return "flags entries need the flag 'value'."
-    elif not (_s(entry, "step") or _s(entry, "text")):
-        return "next_steps entries need a 'step'."
-    return None
-
-
-def _identity(section: LedgerSection, entry: Dict[str, Any]) -> Tuple[str, List[str]]:
-    """Canonical dedup key plus the alias keys the same fact may already be under.
-
-    Aliases exist because identity firms up as detail arrives: a host known
-    only by hostname is later confirmed to be an IP, a credential recorded
-    against its `source` is later tied to a `host`. Folding the alias in keeps
-    enrichment from forking the row.
-    """
-    if section in RESOURCE_SECTIONS:
-        # Values are already normalized per kind. Lowercasing here would merge
-        # distinct URL paths/queries and case-sensitive repository paths.
-        return resource_dedup_key(entry["kind"], entry["value"]), []
-    if section is LedgerSection.CONTAINERS:
-        return ContainerObservation.model_validate(entry).identity(), []
-    aliases: List[str] = []
-    if section is LedgerSection.HOSTS:
-        ip = _s(entry, "ip")
-        hostname = _s(entry, "hostname")
-        identity = ip or hostname
-        if ip and hostname:
-            aliases.append(hostname)
-    elif section is LedgerSection.SERVICES:
-        host = _s(entry, "host")
-        ip = _s(entry, "ip")
-        port = _s(entry, "port")
-        identity = f"{host or ip}:{port}" if (host or ip) and port else ""
-        if host and ip and host != ip:
-            aliases.append(f"{ip}:{port}")
-    elif section is LedgerSection.CREDENTIALS:
-        user = _s(entry, "username")
-        host = _s(entry, "host")
-        source = _s(entry, "source")
-        where = host or source
-        kind = _s(entry, "kind")
-        identity = f"{user}@{where}:{kind}" if user and where else ""
-        if identity:
-            if host and source and host != source:
-                aliases.append(f"{user}@{source}:{kind}")
-            if kind:
-                # The same credential recorded before its kind was known.
-                aliases.append(f"{user}@{where}:")
-                if host and source and host != source:
-                    aliases.append(f"{user}@{source}:")
-        port = _s(entry, "port")
-        if kind.lower() in SSH_CREDENTIAL_KINDS and port:
-            port = str(normalize_ssh_port(entry["port"]))
-            # Promotion consumes the portless key; later ports cannot match it.
-            # Untyped credentials may already name a different endpoint.
-            portless_keys = [identity, *(a for a in aliases if not a.endswith(":"))]
-            identity = f"{identity}:port={port}"
-            aliases = [f"{alias}:port={port}" for alias in aliases] + portless_keys
-    elif section is LedgerSection.FINDINGS:
-        title = _s(entry, "title")
-        host = _s(entry, "host")
-        identity = f"{title}@{host}" if title else ""
-    elif section is LedgerSection.FLAGS:
-        identity = _s(entry, "value")
-    else:  # NEXT_STEPS
-        identity = _s(entry, "step") or _s(entry, "text")
-
-    identity = _norm(identity)
-    if not identity:
-        canonical = json.dumps(entry, sort_keys=True, default=str)
-        return "hash:" + hashlib.sha1(canonical.encode("utf-8")).hexdigest(), []
-    return identity, [_norm(a) for a in aliases if _norm(a)]
 
 
 class FindingsLedger:
@@ -285,7 +150,7 @@ class FindingsLedger:
         if section is LedgerSection.CONTAINERS:
             entry = ContainerObservation.model_validate(entry).model_dump()
             engagement_id = self._kb.root_engagement_id
-        dedup_key, alias_keys = _identity(section, entry)
+        dedup_key, alias_keys = ledger_identity(section, entry)
         return await self._kb.add_ledger_entry(
             engagement_id=engagement_id,
             section=section,
@@ -313,7 +178,7 @@ class FindingsLedger:
         if section not in RESOURCE_SECTIONS:
             raise ValueError("Only assets and targets can be saved as resources.")
         entry = Resource.model_validate(entry).model_dump(exclude_none=True)
-        dedup_key, _ = _identity(section, entry)
+        dedup_key, _ = ledger_identity(section, entry)
         return await self._kb.save_resource_entry(
             section=section,
             entry=entry,

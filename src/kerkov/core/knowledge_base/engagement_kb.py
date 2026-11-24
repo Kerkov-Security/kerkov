@@ -21,7 +21,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Set, Tuple
 
 from pydantic import ValidationError
 
@@ -36,6 +36,17 @@ from kerkov.core.knowledge_base.embeddings import (
     cosine_similarity,
     pack_vector,
     unpack_vector,
+)
+from kerkov.core.knowledge_base.ledger_identity import (
+    HOST_KEYED_SECTIONS,
+    HostClaims,
+    addressed_names,
+    addresses,
+    dropped_names,
+    host_independent_key,
+    host_keyed_identity,
+    keep_machine_names,
+    ledger_identity,
 )
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
@@ -114,6 +125,28 @@ def _merge_dicts(stored: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, 
             continue
         merged[key] = value
     return merged
+
+
+def _fold_entries(
+    section: LedgerSection,
+    rows: Sequence[sqlite3.Row],
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge stored entries oldest first, then `payload`; newer non-empty values win.
+
+    A fold across a machine's names keeps both its hostname and its address.
+    """
+    entries = [_decode_entry(row["entry"]) for row in rows]
+    if payload is not None:
+        entries.append(payload)
+    merged: Dict[str, Any] = {}
+    for entry in entries:
+        merged = _merge_dicts(merged, entry)
+    return keep_machine_names(section, entries, merged)
+
+
+def _row_addresses(section: LedgerSection, row: sqlite3.Row) -> Set[str]:
+    return addresses(addressed_names(section, _decode_entry(row["entry"])))
 
 
 def _merge_entry(stored_json: str, incoming: Dict[str, Any]) -> Dict[str, Any]:
@@ -1086,6 +1119,10 @@ class EngagementKnowledgeBase:
         recorded by hostname and later by IP arrives under a new `dedup_key`,
         so the rows are folded into one and promoted to the canonical key.
 
+        Hosts, services and findings also match rows naming the same machine by
+        another recorded name (`_host_matched_rows`) and are keyed on the merged
+        entry; a hosts write that links two names refolds rows split across them.
+
         `engagement_id` is set on insert only and records the first
         contributor; deleting that engagement leaves the row. An explicit `artifact_ref` replaces prior evidence; a detail-only add
         preserves an existing link.
@@ -1109,73 +1146,230 @@ class EngagementKnowledgeBase:
                         f"ORDER BY id ASC",
                         (section.value, *keys),
                     ).fetchall()
+                    if section in HOST_KEYED_SECTIONS:
+                        rows = sorted(
+                            [
+                                *rows,
+                                *self._host_matched_rows(
+                                    conn, section, payload, keys, rows
+                                ),
+                            ],
+                            key=lambda row: int(row["id"]),
+                        )
                     if rows:
-                        # Oldest row wins: it carries the original contributor's
-                        # `engagement_id`, which is left untouched below.
-                        target = rows[0]
-                        merged: Dict[str, Any] = {}
-                        for row in rows:
-                            merged = _merge_dicts(merged, _decode_entry(row["entry"]))
                         # A Docker observation replaces its complete snapshot,
                         # including cleared ports, health, and endpoint links.
                         merged = (
                             payload
                             if section is LedgerSection.CONTAINERS
-                            else _merge_dicts(merged, payload)
+                            else _fold_entries(section, rows, payload)
                         )
-                        kept_ref = artifact_ref
-                        if kept_ref is None:
-                            kept_ref = next(
-                                (
-                                    row["artifact_ref"]
-                                    for row in rows
-                                    if row["artifact_ref"] is not None
-                                ),
-                                None,
-                            )
-                        stale = [r["id"] for r in rows if r["id"] != target["id"]]
-                        for stale_id in stale:
-                            conn.execute(
-                                "DELETE FROM ledger_entries WHERE id = ?", (stale_id,)
-                            )
-                        conn.execute(
-                            "UPDATE ledger_entries "
-                            "SET entry = ?, dedup_key = ?, artifact_ref = ?, "
-                            "updated_at = ? WHERE id = ?",
-                            (
-                                json.dumps(merged, default=str),
+                        key = dedup_key
+                        if section in HOST_KEYED_SECTIONS:
+                            # Key on what the merged row says, not on this write's
+                            # form: a hostname-only write must not re-key a host
+                            # its IP identifies.
+                            key = self._free_dedup_key(
+                                conn,
+                                section,
+                                ledger_identity(section, merged)[0],
                                 dedup_key,
-                                kept_ref,
+                                rows,
+                            )
+                        result_id = self._fold_ledger_rows(
+                            conn, rows, merged, key, artifact_ref, now
+                        )
+                    else:
+                        cursor = conn.execute(
+                            """
+                            INSERT INTO ledger_entries
+                                (engagement_id, section, entry, dedup_key,
+                                 artifact_ref, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                engagement_id,
+                                section.value,
+                                json.dumps(payload, default=str),
+                                dedup_key,
+                                artifact_ref,
                                 now,
-                                target["id"],
+                                now,
                             ),
                         )
-                        if section in RESOURCE_SECTIONS:
-                            self._absorb_vantage_routes(conn, int(target["id"]))
-                        return int(target["id"])
-                    cursor = conn.execute(
-                        """
-                        INSERT INTO ledger_entries
-                            (engagement_id, section, entry, dedup_key,
-                             artifact_ref, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            engagement_id,
-                            section.value,
-                            json.dumps(payload, default=str),
-                            dedup_key,
-                            artifact_ref,
-                            now,
-                            now,
-                        ),
-                    )
-                    result_id = int(cursor.lastrowid or 0)
+                        result_id = int(cursor.lastrowid or 0)
                     if section in RESOURCE_SECTIONS:
                         self._absorb_vantage_routes(conn, result_id)
+                    elif section is LedgerSection.HOSTS:
+                        self._refold_host_dependents(conn, result_id, now)
                 return result_id
 
         return await asyncio.to_thread(_upsert)
+
+    @staticmethod
+    def _fold_ledger_rows(
+        conn: sqlite3.Connection,
+        rows: Sequence[sqlite3.Row],
+        merged: Dict[str, Any],
+        dedup_key: str,
+        artifact_ref: Optional[int],
+        now: str,
+    ) -> int:
+        """Fold `rows` (oldest first) into the oldest, returning its id.
+
+        The oldest row keeps the original contributor's `engagement_id`. Without
+        an explicit `artifact_ref` the oldest existing evidence link survives.
+        """
+        target = rows[0]
+        if artifact_ref is None:
+            artifact_ref = next(
+                (
+                    row["artifact_ref"]
+                    for row in rows
+                    if row["artifact_ref"] is not None
+                ),
+                None,
+            )
+        for row in rows[1:]:
+            conn.execute("DELETE FROM ledger_entries WHERE id = ?", (row["id"],))
+        conn.execute(
+            "UPDATE ledger_entries "
+            "SET entry = ?, dedup_key = ?, artifact_ref = ?, "
+            "updated_at = ? WHERE id = ?",
+            (
+                json.dumps(merged, default=str),
+                dedup_key,
+                artifact_ref,
+                now,
+                target["id"],
+            ),
+        )
+        return int(target["id"])
+
+    @staticmethod
+    def _free_dedup_key(
+        conn: sqlite3.Connection,
+        section: LedgerSection,
+        preferred: str,
+        fallback: str,
+        rows: Sequence[sqlite3.Row],
+    ) -> str:
+        """`preferred` unless a row outside the fold already holds it."""
+        holder = conn.execute(
+            "SELECT id FROM ledger_entries WHERE section = ? AND dedup_key = ?",
+            (section.value, preferred),
+        ).fetchone()
+        if holder is None or holder["id"] in {row["id"] for row in rows}:
+            return preferred
+        return fallback
+
+    @staticmethod
+    def _host_claims(
+        conn: sqlite3.Connection,
+        write: Optional[Tuple[LedgerSection, Dict[str, Any]]] = None,
+    ) -> HostClaims:
+        hosts = conn.execute(
+            "SELECT entry FROM ledger_entries WHERE section = ?",
+            (LedgerSection.HOSTS.value,),
+        ).fetchall()
+        return HostClaims.from_entries(
+            (_decode_entry(row["entry"]) for row in hosts), write
+        )
+
+    def _host_matched_rows(
+        self,
+        conn: sqlite3.Connection,
+        section: LedgerSection,
+        payload: Dict[str, Any],
+        keys: Sequence[str],
+        exact_rows: Sequence[sqlite3.Row],
+    ) -> List[sqlite3.Row]:
+        """Rows recording the same fact under another name of the same machine.
+
+        A stored row answers to every form its merged fields link and to the
+        names hosts entries pin to one address, not only to its `dedup_key`.
+        Exact key matches always fold, since the key is unique; matches through
+        another name are dropped when they would join two different IP addresses
+        or leave a name they recorded, which profiles select on, unstated.
+        """
+        claims = self._host_claims(conn, write=(section, payload))
+        wanted = set(keys) | host_keyed_identity(section, payload, claims)
+        exact_ids = {row["id"] for row in exact_rows}
+        matched = [
+            row
+            for row in conn.execute(
+                "SELECT * FROM ledger_entries WHERE section = ? ORDER BY id",
+                (section.value,),
+            ).fetchall()
+            if row["id"] not in exact_ids
+            and host_keyed_identity(section, _decode_entry(row["entry"]), claims)
+            & wanted
+        ]
+        known = addresses(addressed_names(section, payload)).union(
+            *(_row_addresses(section, row) for row in exact_rows)
+        )
+        if known:
+            matched = [row for row in matched if _row_addresses(section, row) <= known]
+        elif len(set().union(*(_row_addresses(section, row) for row in matched))) > 1:
+            return []
+        if not matched:
+            return []
+        folded = sorted([*exact_rows, *matched], key=lambda row: int(row["id"]))
+        if dropped_names(
+            section,
+            (_decode_entry(row["entry"]) for row in matched),
+            _fold_entries(section, folded, payload),
+        ):
+            return []
+        return matched
+
+    def _refold_host_dependents(
+        self, conn: sqlite3.Connection, host_id: int, now: str
+    ) -> None:
+        """Fold services and findings split across a host's names once it links them.
+
+        Rows recorded by hostname and by IP before any write tied the two would
+        otherwise stay apart until the same fact happened to be recorded again.
+        """
+        row = conn.execute(
+            "SELECT entry FROM ledger_entries WHERE id = ?", (host_id,)
+        ).fetchone()
+        host = _decode_entry(row["entry"]) if row is not None else {}
+        names = addressed_names(LedgerSection.HOSTS, host)
+        ips = addresses(names)
+        if len(names) < 2 or len(ips) != 1:
+            return
+        names = self._host_claims(conn).equivalents(next(iter(ips)))
+        if len(names) < 2:
+            return
+        for section in (LedgerSection.SERVICES, LedgerSection.FINDINGS):
+            groups: Dict[str, List[sqlite3.Row]] = {}
+            for candidate in conn.execute(
+                "SELECT * FROM ledger_entries WHERE section = ? ORDER BY id",
+                (section.value,),
+            ).fetchall():
+                entry = _decode_entry(candidate["entry"])
+                named = addressed_names(section, entry)
+                if named & names and addresses(named) <= ips:
+                    groups.setdefault(host_independent_key(section, entry), []).append(
+                        candidate
+                    )
+            for rows in groups.values():
+                if len(rows) < 2:
+                    continue
+                merged = _fold_entries(section, rows)
+                if dropped_names(
+                    section, (_decode_entry(row["entry"]) for row in rows), merged
+                ):
+                    continue
+                key = self._free_dedup_key(
+                    conn,
+                    section,
+                    ledger_identity(section, merged)[0],
+                    rows[0]["dedup_key"],
+                    rows,
+                )
+                self._fold_ledger_rows(conn, rows, merged, key, None, now)
 
     async def save_resource_entry(
         self,

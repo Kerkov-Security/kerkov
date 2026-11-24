@@ -202,6 +202,214 @@ class DedupMergeTest(_LedgerTestCase):
         self.assertEqual(len(entries), 2)
 
 
+class HostIdentityTest(_LedgerTestCase):
+    """Rows naming one machine by IP and by hostname are the same fact."""
+
+    def _entries(self, section):
+        return _run(self.ledger.list(section))
+
+    def _link_dc01(self):
+        return self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "dc01"})
+
+    def test_hostname_only_write_enriches_the_host_its_ip_identifies(self):
+        host_id = self._link_dc01()
+        self._add(LedgerSection.HOSTS, {"hostname": "DC01", "os": "Windows"})
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "note": "domain controller"})
+
+        entries = self._entries(LedgerSection.HOSTS)
+        self.assertEqual([e.id for e in entries], [host_id])
+        self.assertEqual(entries[0].entry["os"], "Windows")
+        self.assertEqual(entries[0].entry["note"], "domain controller")
+
+    def test_service_resolves_through_a_known_host(self):
+        self._link_dc01()
+        service_id = self._add(
+            LedgerSection.SERVICES, {"host": "dc01", "port": "445", "service": "smb"}
+        )
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "10.0.0.5", "port": "445", "version": "SMB 3.1.1"},
+        )
+
+        entries = self._entries(LedgerSection.SERVICES)
+        self.assertEqual([e.id for e in entries], [service_id])
+        self.assertEqual(entries[0].entry["service"], "smb")
+        self.assertEqual(entries[0].entry["version"], "SMB 3.1.1")
+
+    def test_finding_resolves_through_a_known_host(self):
+        self._link_dc01()
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "SMB signing disabled", "host": "10.0.0.5"},
+            artifact_ref=7,
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "SMB signing disabled", "host": "dc01", "severity": "medium"},
+        )
+
+        entries = self._entries(LedgerSection.FINDINGS)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].entry["severity"], "medium")
+        self.assertEqual(entries[0].artifact_ref, 7)
+
+    def test_linking_a_host_folds_rows_already_split_across_its_names(self):
+        by_name = self._add(
+            LedgerSection.SERVICES,
+            {"host": "dc01", "port": "445", "service": "smb"},
+            artifact_ref=3,
+        )
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "445"})
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "88"})
+        finding = self._add(
+            LedgerSection.FINDINGS, {"title": "SMB signing disabled", "host": "dc01"}
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "smb signing disabled", "host": "10.0.0.5", "severity": "low"},
+        )
+
+        self._link_dc01()
+
+        services = self._entries(LedgerSection.SERVICES)
+        self.assertEqual(len(services), 2)
+        smb = next(e for e in services if e.entry["port"] == "445")
+        self.assertEqual(smb.id, by_name)
+        self.assertEqual(smb.artifact_ref, 3)
+        self.assertEqual(smb.entry["service"], "smb")
+        findings = self._entries(LedgerSection.FINDINGS)
+        self.assertEqual([e.id for e in findings], [finding])
+        self.assertEqual(findings[0].entry["severity"], "low")
+
+    def test_service_recording_both_names_absorbs_a_later_single_name_write(self):
+        service_id = self._add(
+            LedgerSection.SERVICES, {"host": "dc01", "ip": "10.0.0.5", "port": "22"}
+        )
+        self._add(LedgerSection.SERVICES, {"ip": "10.0.0.5", "port": "22", "v": "9"})
+
+        entries = self._entries(LedgerSection.SERVICES)
+        self.assertEqual([e.id for e in entries], [service_id])
+        self.assertEqual(entries[0].entry["host"], "dc01")
+
+    def test_hostname_on_two_addresses_joins_neither(self):
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.5", "hostname": "www"})
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.6", "hostname": "www"})
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "443"})
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.6", "port": "443"})
+        self._add(LedgerSection.SERVICES, {"host": "www", "port": "443"})
+        self._add(LedgerSection.HOSTS, {"hostname": "www", "note": "behind a LB"})
+
+        self.assertEqual(len(self._entries(LedgerSection.HOSTS)), 3)
+        self.assertEqual(len(self._entries(LedgerSection.SERVICES)), 3)
+
+    def test_hostname_moving_to_a_new_address_does_not_join_the_two(self):
+        self._link_dc01()
+        self._add(LedgerSection.HOSTS, {"ip": "10.0.0.9", "hostname": "dc01"})
+
+        hosts = self._entries(LedgerSection.HOSTS)
+        self.assertEqual(sorted(e.entry["ip"] for e in hosts), ["10.0.0.5", "10.0.0.9"])
+
+    def test_refold_leaves_rows_that_name_another_address(self):
+        self._add(
+            LedgerSection.SERVICES, {"host": "dc01", "ip": "10.0.0.7", "port": "445"}
+        )
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "445"})
+
+        self._link_dc01()
+
+        self.assertEqual(len(self._entries(LedgerSection.SERVICES)), 2)
+
+    def test_reworded_findings_and_other_ports_stay_distinct(self):
+        self._link_dc01()
+        self._add(
+            LedgerSection.FINDINGS, {"title": "SMB signing disabled", "host": "dc01"}
+        )
+        self._add(
+            LedgerSection.FINDINGS,
+            {"title": "SMB signing not required", "host": "10.0.0.5"},
+        )
+        self._add(LedgerSection.SERVICES, {"host": "dc01", "port": "445"})
+        self._add(LedgerSection.SERVICES, {"host": "10.0.0.5", "port": "139"})
+
+        self.assertEqual(len(self._entries(LedgerSection.FINDINGS)), 2)
+        self.assertEqual(len(self._entries(LedgerSection.SERVICES)), 2)
+
+
+class HostIdentityProfileTest(_LedgerTestCase):
+    """A fold across a machine's names keeps every name its rows were selected by."""
+
+    def _target(self, kind, value):
+        return self._add(LedgerSection.TARGETS, {"kind": kind, "value": value})
+
+    def _profile_counts(self, entry_id):
+        profile = _run(self.ledger.profile(entry_id))
+        return profile["counts"]["services"], profile["counts"]["findings"]
+
+    def test_linking_a_host_keeps_both_names_in_profiles(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        for host in ("192.0.2.8", "files.example"):
+            self._add(LedgerSection.SERVICES, {"host": host, "port": "21"})
+            self._add(LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": host})
+
+        self._add(LedgerSection.HOSTS, {"ip": "192.0.2.8", "hostname": "files.example"})
+
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.SERVICES))), 1)
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.FINDINGS))), 1)
+        self.assertEqual(self._profile_counts(ip_target), (1, 1))
+        self.assertEqual(self._profile_counts(domain_target), (1, 1))
+
+    def test_finding_matched_through_a_known_host_keeps_both_names(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        self._add(LedgerSection.HOSTS, {"ip": "192.0.2.8", "hostname": "files.example"})
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "192.0.2.8"}
+        )
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "files.example"}
+        )
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "192.0.2.8"}
+        )
+
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.FINDINGS))), 1)
+        self.assertEqual(self._profile_counts(ip_target), (0, 1))
+        self.assertEqual(self._profile_counts(domain_target), (0, 1))
+
+    def test_single_name_write_keeps_the_hostname_a_service_recorded(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "files.example", "ip": "192.0.2.8", "port": "21"},
+        )
+        self._add(
+            LedgerSection.SERVICES, {"host": "192.0.2.8", "port": "21", "v": "3.0"}
+        )
+
+        services = _run(self.ledger.list(LedgerSection.SERVICES))
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0].entry["v"], "3.0")
+        self.assertEqual(self._profile_counts(ip_target), (1, 0))
+        self.assertEqual(self._profile_counts(domain_target), (1, 0))
+
+    def test_two_hostnames_on_one_address_are_not_folded_into_one(self):
+        first = self._target("domain", "files.example")
+        second = self._target("domain", "ftp.example")
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "files.example", "ip": "192.0.2.8", "port": "21"},
+        )
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "ftp.example", "ip": "192.0.2.8", "port": "21"},
+        )
+
+        self.assertEqual(self._profile_counts(first), (1, 0))
+        self.assertEqual(self._profile_counts(second), (1, 0))
+
+
 class SerializationTest(_LedgerTestCase):
     def test_profile_detail_fields_do_not_evict_host_and_service_context(self):
         for index in range(20):

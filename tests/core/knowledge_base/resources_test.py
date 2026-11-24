@@ -7,7 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
-from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.ledger_identity import identity_error
 from kerkov.core.knowledge_base.models import LedgerSection, Resource
 from kerkov.core.knowledge_base.resources import ResourceValueError
 from kerkov.tools.ledger_tool import LedgerTool
