@@ -918,6 +918,17 @@ class HostCompliance {
     return JSON.stringify([this.inventory.contextId, this.savedRun?.id, this.savedRun?.before?.report_sha256, this.savedRun?.after?.report_sha256, query]);
   }
 
+  outcomeCell(status = "unassessed") {
+    const cell = this.node("td", `compliance-outcome-${status}`, "");
+    cell.append(this.node("span", "compliance-status-badge", status.replaceAll("_", " ")));
+    return cell;
+  }
+
+  impactCell(impact) {
+    const band = impact == null ? "Unknown" : impact >= 0.7 ? "High" : impact >= 0.4 ? "Medium" : "Low";
+    return this.node("td", "compliance-impact", impact == null ? band : `${band} · ${impact}`);
+  }
+
   requestControls() {
     if (this.controlsRequest || !this.inventory.connected || !this.hasControlEvidence()) return;
     if (this.exportRequest || this.controlRequest) {
@@ -988,12 +999,12 @@ class HostCompliance {
       title.append(button);
       if (complete) title.append(this.node("span", "compliance-control-identity", `${control.control_id} · ${control.profile}`));
       row.append(title);
-      row.append(this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
+      row.append(this.impactCell(control.impact));
       if (assessmentOnly) {
         const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
-        row.append(this.node("td", `compliance-outcome-${latest}`, latest.replaceAll("_", " ")));
+        row.append(this.outcomeCell(latest));
       } else {
-        for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
+        for (const phase of ["before", "after"]) row.append(this.outcomeCell(control[phase] || "unassessed"));
       }
       return row;
     }));

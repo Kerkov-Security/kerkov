@@ -361,12 +361,15 @@ def _show_complete_record(page, tmp_path):
     return record
 
 
-@pytest.mark.parametrize("width", [390, 1440])
+@pytest.mark.parametrize(
+    "width,theme", [(390, "light"), (390, "dark"), (1440, "light"), (1440, "dark")]
+)
 def test_complete_browser_pages_searches_and_filters_original_evidence(
-    dashboard, tmp_path, width
+    dashboard, tmp_path, width, theme
 ):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1440 if width > 760 else 1100})
+    page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     _show_complete_record(page, tmp_path)
     expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
     page.locator("#compliance-control-filter").select_option("all")
@@ -378,6 +381,16 @@ def test_complete_browser_pages_searches_and_filters_original_evidence(
     page.locator("#compliance-page-next").click()
     expect(page.locator("#compliance-page-number")).to_have_text("Page 2 of 11")
     expect(page.locator("#compliance-controls")).to_contain_text("control-025")
+    table = page.locator(".compliance-table-wrap")
+    table.evaluate("node => node.scrollTop = node.scrollHeight")
+    assert table.evaluate("node => node.scrollTop > 0")
+    assert (
+        abs(
+            page.locator(".compliance-controls th").first.bounding_box()["y"]
+            - table.bounding_box()["y"]
+        )
+        <= 2
+    )
     page.locator("#compliance-control-search").fill("SSH")
     expect(page.locator("#compliance-page-summary")).to_have_text(
         "1–6 of 6 matching checks · 275 total"
@@ -390,8 +403,10 @@ def test_complete_browser_pages_searches_and_filters_original_evidence(
     )
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.locator("#compliance-control-search").evaluate("node => node.blur()")
+    page.evaluate("window.scrollTo(0, 0)")
     page.screenshot(
-        path=str(tmp_path / f"compliance-full-browser-{width}.png"), full_page=True
+        path=str(tmp_path / f"compliance-full-browser-{width}-{theme}.png"),
+        full_page=True,
     )
     page.locator("#compliance-control-impact").select_option("high")
     expect(page.locator("#compliance-controls tr")).to_have_count(3)
@@ -475,3 +490,54 @@ def test_complete_browser_disconnect_discards_pending_page(dashboard):
     expect(page.locator("#compliance-run-review")).to_have_attribute(
         "aria-busy", "false"
     )
+
+
+def test_results_keep_outcome_labels_distinct_and_show_impact_bands(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["controls"].extend(
+        [
+            {
+                "profile": "accounts",
+                "control_id": "zero-impact",
+                "title": "Low impact check",
+                "impact": 0,
+                "before": "passed",
+                "after": "unassessed",
+            },
+            {
+                "profile": "accounts",
+                "control_id": "unknown-impact",
+                "title": "Unknown impact check",
+                "impact": None,
+                "before": "unassessed",
+                "after": "unassessed",
+            },
+        ]
+    )
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    for status in (
+        "passed",
+        "failed",
+        "error",
+        "skipped",
+        "waived",
+        "no_tests",
+        "unassessed",
+    ):
+        badge = page.locator(
+            f".compliance-outcome-{status} .compliance-status-badge"
+        ).first
+        expect(badge).to_have_text(status.replace("_", " "))
+    expect(
+        page.locator("#compliance-controls tr").first.locator(".compliance-impact")
+    ).to_have_text("High · 0.7")
+    expect(
+        page.locator("#compliance-controls tr").nth(1).locator(".compliance-impact")
+    ).to_have_text("Medium · 0.5")
+    expect(
+        page.locator("#compliance-controls tr").nth(6).locator(".compliance-impact")
+    ).to_have_text("Low · 0")
+    expect(
+        page.locator("#compliance-controls tr").nth(7).locator(".compliance-impact")
+    ).to_have_text("Unknown")
