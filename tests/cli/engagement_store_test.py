@@ -144,6 +144,44 @@ class EngagementLifecycleTest(unittest.TestCase):
         assert records[0]["summary"] == "Test summary"
         assert records[1]["content"] == "hi"
 
+    def test_update_workflow_persists_and_clears(self):
+        self.store.append_message(_create_message(content="hi"))
+        self.store.update_workflow("ctf")
+        records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")
+        assert records[0]["workflow"] == "ctf"
+        assert records[1]["content"] == "hi"
+        assert self.store.workflow == "ctf"
+        self.store.update_workflow(None)
+        assert _read_jsonl(self.store_dir / f"{self.eid}.jsonl")[0]["workflow"] is None
+        assert self.store.workflow is None
+
+    def test_workflow_follows_the_selected_engagement(self):
+        self.store.update_workflow("ctf")
+        reader = EngagementStore(store_dir=self.store_dir)
+        engagement = reader.load_engagement(self.eid)
+        assert engagement.metadata.workflow == "ctf"
+        assert reader.workflow == "ctf"
+        reader.detach()
+        assert reader.workflow is None
+        self.store.start_engagement(
+            mode="red", model="claude", verbosity="standard", approval_mode="normal"
+        )
+        assert self.store.workflow is None
+
+    def test_engagements_saved_before_workflows_load_without_one(self):
+        path = self.store_dir / f"{self.eid}.jsonl"
+        meta = _read_jsonl(path)[0]
+        del meta["workflow"]
+        path.write_text(json.dumps(meta) + "\n", encoding="utf-8")
+        reader = EngagementStore(store_dir=self.store_dir)
+        assert reader.load_engagement(self.eid).metadata.workflow is None
+        assert reader.workflow is None
+
+    def test_update_workflow_needs_a_selected_engagement(self):
+        self.store.detach()
+        with self.assertRaises(ValueError):
+            self.store.update_workflow("ctf")
+
     def test_update_verbosity(self):
         self.store.update_verbosity("silent")
         records = _read_jsonl(self.store_dir / f"{self.eid}.jsonl")

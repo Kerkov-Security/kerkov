@@ -80,7 +80,7 @@ approvals.
 
 | Command | Aliases | Syntax | What it does |
 |---|---|---|---|
-| `/workflow` | `/workflows` | `/workflow [list] \| /workflow <name> runs \| /workflow <name> show <run-id> \| /workflow compliance assess\|preview \| /workflow compliance apply\|reassess <run-id>` | List the guided workflows and the team role each targets, run one, or review its saved runs. |
+| `/workflow` | `/workflows` | `/workflow [list] \| /workflow compliance runs \| /workflow compliance show <run-id> \| /workflow compliance assess\|preview \| /workflow compliance apply\|reassess <run-id> \| /workflow ctf [start\|stop]` | List the guided workflows and the team role each targets, run one, or review its saved runs. |
 
 `assess` and `preview` prompt for a recorded `ip` or `domain` asset, a baseline
 (or an existing profile project) and SSH settings, prefilled from SSH access
@@ -96,6 +96,16 @@ Runs are stored in the engagement workspace, so the terminal and the
 [web console](../guides/web-console.md) read the same history. `show` prints the
 stage progress, readiness checks, a per-control before/after table, and evidence
 paths. A run ID may be shortened to a unique prefix of at least 6 characters.
+
+`/workflow ctf start` sets the capture-the-flag objective for the current
+engagement, starting one if the conversation is empty. Every later turn carries
+the objective (speed, flag formats, recording flags with `ledger`, and the
+assumption that the named targets are intentional lab or competition systems)
+until `/workflow ctf stop`, `/clear` or `/mode`. The objective is saved with the
+engagement, so `/resume` restores it. Bare `/workflow ctf` shows whether it is
+active. CTF targets Red; starting it in another mode only warns. In the web
+console, `/workflow ctf` and its CTF page do the same; compliance runs start
+from the Compliance panel there.
 
 ## Tools
 

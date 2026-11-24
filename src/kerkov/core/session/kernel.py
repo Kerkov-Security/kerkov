@@ -17,6 +17,7 @@ from kerkov.core.conversation_engine import ApprovalStrategy, LoopSession, Outpu
 from kerkov.core.knowledge_base.engagement_kb import EngagementKnowledgeBase
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
 from kerkov.core.session.state import SessionState
+from kerkov.core.workflows.registry import engagement_workflow_prompts
 from kerkov.models.basic_models import Message
 from kerkov.tools.base_tool import BaseTool
 
@@ -46,7 +47,11 @@ class SessionKernel:
         compaction_warning_shown: bool = False,
         context_only: bool = False,
     ) -> LoopSession:
-        """Assemble a turn's `LoopSession`, filling config/provider from state."""
+        """Assemble a turn's `LoopSession`, filling config/provider from state.
+
+        The engagement's active workflow (e.g. CTF) prepends its objective
+        overlay to `transient_prompts`, so every main turn carries it.
+        """
         state = self.state
         config = state.config
         provider = state.provider_manager.provider
@@ -72,7 +77,10 @@ class SessionKernel:
             token_tracker=state.token_tracker,
             interrupt=interrupt,
             interrupt_ends_turn=interrupt_ends_turn,
-            transient_prompts=list(transient_prompts),
+            transient_prompts=[
+                *engagement_workflow_prompts(state.engagement_store.workflow),
+                *transient_prompts,
+            ],
             retry_deferred_execution=retry_deferred_execution,
             compaction_warning_shown=compaction_warning_shown,
             context_only=context_only,

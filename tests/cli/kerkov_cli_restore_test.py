@@ -186,6 +186,19 @@ class RestoreRejectsUnknownSettingsTest(_RestoreFixture):
 
         self.assertIn("whenever", message)
 
+    def test_an_unknown_workflow_is_refused(self):
+        cli, message = self._restore_with(workflow="recon")
+
+        self.assertIn("abc123", message)
+        self.assertIn("recon", message)
+        self.assertIn("ctf", message)
+        cli.mode_manager.switch_mode.assert_not_called()
+
+    def test_a_run_scoped_workflow_is_not_an_engagement_workflow(self):
+        _, message = self._restore_with(workflow="compliance")
+
+        self.assertIn("compliance", message)
+
     def test_nothing_is_mutated_when_a_setting_is_unknown(self):
         cli, _ = self._restore_with(verbosity="chatty")
 

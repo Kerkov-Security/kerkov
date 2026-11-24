@@ -32,7 +32,9 @@ accepted: `--mode` and `/mode` take only `red`, `purple`, and `blue`, and a save
 engagement that recorded an old name fails to resume rather than being silently
 remapped to a different posture. There is no reconnaissance mode: Red and
 Purple delegate enumeration to the `recon`
-[agent profile](../reference/agent-profiles.md).
+[agent profile](../reference/agent-profiles.md). CTF is now a
+[workflow](../reference/slash-commands.md#workflows) (`/workflow ctf start`)
+that adds the flag objective on top of Red.
 
 Mode is independent of your provider, model, and autonomy — switching mode keeps
 all three.
@@ -97,7 +99,7 @@ detailed narration (`/verbosity guided`) with a relaxed approval policy
 - **Repetitive, well-scoped work:** keep verbosity low, relax approvals with
   rules rather than a blanket level — see [Approvals](approvals.md).
 - **A disposable lab or CTF:** red + autonomy 3, or level 4 in a throwaway
-  environment.
+  environment. Add the CTF objective with `/workflow ctf start`.
 
 !!! warning "Level 4 and YOLO bypass every prompt"
     Autonomy 4 (and `--yolo` / `/yolo`) run every tool call without asking.

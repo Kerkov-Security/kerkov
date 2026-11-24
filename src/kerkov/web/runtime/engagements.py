@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING, Any
 
 from kerkov.context.token_tracker import TokenTracker
 from kerkov.core.conversation_engine import formatted_tool_result_success
-from kerkov.core.engagement.engagement_restore import restored_setting
+from kerkov.core.engagement.engagement_restore import (
+    restored_setting,
+    restored_workflow,
+)
 from kerkov.core.engagement.engagement_store import EngagementStore, Engangement
 from kerkov.core.knowledge_base.engagement_kb import kb_path_for, open_knowledge_base
 from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
@@ -270,6 +273,7 @@ class WebEngagements:
             approval = restored_setting(
                 ApprovalMode, metadata.approval_mode, metadata.id, "approval mode"
             )
+            restored_workflow(metadata.workflow, metadata.id)
         except Exception:
             raise EngagementRequestError(
                 "This engagement records settings this version cannot restore."
@@ -349,6 +353,7 @@ class WebEngagements:
                     "approval_mode": approval.value,
                     "verbosity": verbosity.value,
                     "saved_model": metadata.model,
+                    "workflow": session.engagement_store.workflow,
                     "compliance": compliance_readiness(session),
                     **self._history(),
                 },

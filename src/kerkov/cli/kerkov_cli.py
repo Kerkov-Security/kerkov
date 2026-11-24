@@ -53,7 +53,10 @@ from kerkov.core.conversation_engine import (
     OutputSink,
 )
 from kerkov.core.credentials import CredentialManager, get_credential_manager
-from kerkov.core.engagement.engagement_restore import restored_setting
+from kerkov.core.engagement.engagement_restore import (
+    restored_setting,
+    restored_workflow,
+)
 from kerkov.core.engagement.engagement_store import Engangement
 from kerkov.core.knowledge_base.embeddings import resolve_embedding_backend
 from kerkov.core.knowledge_base.engagement_kb import (
@@ -696,6 +699,9 @@ Type `/help` for commands · `/q` to exit
         self.tool_approval_helper.clear_session_rules()
         self.conversation_history = []
         self.token_tracker.reset()
+        # Until the next turn starts a new engagement, nothing may still read
+        # the old one's state, such as its active workflow.
+        self.engagement_store.detach()
         if self._knowledge_base is not None:
             self._knowledge_base.close()
             self._knowledge_base = None
@@ -711,8 +717,8 @@ Type `/help` for commands · `/q` to exit
         Pure state restoration — callers handle any console output. Returns the
         loaded engagement (so callers can inspect metadata), or None if the
         engagement does not exist. Raises `EngagementRestoreError` when the
-        saved metadata names a mode, verbosity or approval mode this build no
-        longer has. Set clear_session_rules=True for mid-session resumes
+        saved metadata names a mode, verbosity, approval mode or workflow this
+        build no longer has. Set clear_session_rules=True for mid-session resumes
         (e.g. /resume) to drop approval rules from the prior session.
         """
         engagement = self.engagement_store.load_engagement(engagement_id)
@@ -733,6 +739,7 @@ Type `/help` for commands · `/q` to exit
         approval_mode = restored_setting(
             ApprovalMode, metadata.approval_mode, engagement_id, "approval mode"
         )
+        restored_workflow(metadata.workflow, engagement_id)
 
         # Validated before anything is mutated, so a bad value cannot leave the
         # CLI half-restored.

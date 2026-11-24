@@ -134,7 +134,9 @@
           <div class="workspace-views">
           <section id="ctf-view" class="workflow-view" role="tabpanel" aria-labelledby="ctf-tab" hidden>
             <p class="eyebrow">WORKFLOWS / CTF</p>
-            <header class="workflow-heading"><h2>Capture the flag</h2><p>Connect your lab platform to get started.</p></header>
+            <header class="workflow-heading"><h2>Capture the flag</h2><p>Set the flag objective for this engagement, then name the challenge or target in the conversation.</p></header>
+            <h3>Objective</h3>
+            <div class="integration-row"><div><h3>CTF objective</h3><p>Every turn carries the flag objective and lab-scope rules until you stop it. Designed for Red mode.</p><p id="ctf-objective-state" role="status" aria-live="polite">Not active in this engagement.</p></div><div class="ctf-objective-actions"><button id="ctf-start" class="inventory-button inventory-primary" type="button" disabled>Start CTF</button><button id="ctf-stop" class="inventory-button" type="button" disabled hidden>Stop CTF</button></div></div>
             <h3>Lab platform</h3>
             <div class="integration-row"><div><h3>Hack The Box</h3><p>Connect with your HTB App Token.</p><p class="htb-connection-state" role="status" aria-live="polite">Connecting to the session…</p></div><button id="htb-open" class="inventory-button inventory-primary" type="button" disabled>Connect HTB</button></div>
             <div class="workflow-links"><p>Have a target already?</p><button id="ctf-targets" class="inventory-button" type="button">Open assets &amp; targets →</button><button id="ctf-conversation" class="inventory-button" type="button">Open conversation →</button></div>

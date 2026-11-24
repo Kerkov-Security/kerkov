@@ -3,6 +3,11 @@
 Both front ends read this, the way they both read `COMMAND_SPECS`. The CLI's
 `/workflow` dispatch and listing and the web console's workflow cards derive
 their set from here, so neither can offer a workflow the other lacks.
+
+A workflow's overlay reaches the model in one of two scopes. A *run* workflow
+(Compliance) carries it on the turns of one gated run. An *engagement* workflow
+(CTF) is started once, recorded in the engagement's metadata, and carries it on
+every main turn of that engagement until it is stopped.
 """
 
 from __future__ import annotations
@@ -27,6 +32,18 @@ COMPLIANCE_OVERLAY = "\n\n".join(
 )
 
 
+# Carried from the retired `ctf` mode. Static for the same cache reason as
+# COMPLIANCE_OVERLAY: it rides every main turn of a CTF engagement.
+CTF_OVERLAY = "\n\n".join(
+    [
+        "WORKFLOW: CTF — competitive challenge solving. The flag is the objective.",
+        "Optimize for speed: solve first, explain after. Recon the challenge fast (file types, strings, metadata, source code, network traffic), identify its category (web, crypto, reversing, forensics, pwn, OSINT) and apply the matching technique. If an approach fails after a few attempts, pivot. Script exploits, decoders, brute-forcers and parsers rather than working steps by hand. Delegate independent parts (several services, files or categories) in one `delegate` batch.",
+        "Look for common flag formats such as flag{...}, CTF{...} or the competition's own pattern. Once you have a foothold, focus on extracting the flag. Record each flag with ledger and highlight it in your reply.",
+        "Scope: the targets the operator names are intentionally vulnerable lab or competition systems, so creative and unconventional approaches are encouraged. Stay on those targets and the platform's rules; this does not extend to other hosts or networks.",
+    ]
+)
+
+
 @dataclass(frozen=True)
 class WorkflowDefinition:
     """One workflow's identity, declared team role, and objective overlay."""
@@ -37,6 +54,9 @@ class WorkflowDefinition:
     mode: ModeType
     overlay: str
     actions: List[str] = field(default_factory=list)
+    # True: once started, the overlay applies to every main turn of the
+    # engagement (persisted in its metadata) rather than to one run.
+    engagement_scoped: bool = False
 
 
 COMPLIANCE_WORKFLOW = WorkflowDefinition(
@@ -51,7 +71,20 @@ COMPLIANCE_WORKFLOW = WorkflowDefinition(
     actions=["assess", "preview", "apply"],
 )
 
-WORKFLOW_DEFINITIONS: List[WorkflowDefinition] = [COMPLIANCE_WORKFLOW]
+CTF_WORKFLOW = WorkflowDefinition(
+    name="ctf",
+    title="CTF",
+    summary=(
+        "Capture the flag on intentionally vulnerable lab or competition "
+        "targets; the objective applies to the whole engagement until stopped."
+    ),
+    mode=ModeType.RED,
+    overlay=CTF_OVERLAY,
+    actions=["start", "stop"],
+    engagement_scoped=True,
+)
+
+WORKFLOW_DEFINITIONS: List[WorkflowDefinition] = [COMPLIANCE_WORKFLOW, CTF_WORKFLOW]
 
 
 def workflow_names() -> List[str]:
@@ -66,6 +99,20 @@ def find_workflow(name: str) -> Optional[WorkflowDefinition]:
         (d for d in WORKFLOW_DEFINITIONS if d.name == wanted),
         None,
     )
+
+
+def engagement_workflow(name: Optional[str]) -> Optional[WorkflowDefinition]:
+    """The engagement-scoped workflow a saved name selects, or None."""
+    if not name:
+        return None
+    definition = find_workflow(name)
+    return definition if definition and definition.engagement_scoped else None
+
+
+def engagement_workflow_prompts(name: Optional[str]) -> List[str]:
+    """The transient prompts an engagement's active workflow adds to a turn."""
+    definition = engagement_workflow(name)
+    return [definition.overlay] if definition else []
 
 
 def mode_mismatch_notice(

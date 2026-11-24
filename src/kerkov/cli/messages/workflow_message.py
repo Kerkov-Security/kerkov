@@ -7,7 +7,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from kerkov.cli.messages.user_message import UserMessage
-from kerkov.cli.workflows import compliance
+from kerkov.cli.workflows import compliance, ctf
 from kerkov.core.workflows.registry import (
     WORKFLOW_DEFINITIONS,
     WorkflowDefinition,
@@ -24,7 +24,10 @@ WorkflowHandler = Callable[
 
 # Every definition in the shared registry needs a terminal handler here
 # (enforced by tests/cli/messages/workflow_message_test.py).
-HANDLERS: Dict[str, WorkflowHandler] = {"compliance": compliance.handle}
+HANDLERS: Dict[str, WorkflowHandler] = {
+    "compliance": compliance.handle,
+    "ctf": ctf.handle,
+}
 
 
 class WorkflowMessage(UserMessage):
@@ -70,6 +73,7 @@ class WorkflowMessage(UserMessage):
             )
         cli.console.print(table)
         cli.console.print(
-            "[dim]Use /workflow <name> <action> to start a run, or "
-            "/workflow <name> runs to review saved ones.[/dim]"
+            "[dim]Use /workflow <name> <action> to start one. Compliance runs "
+            "are saved (/workflow compliance runs); CTF stays active for the "
+            "engagement until /workflow ctf stop.[/dim]"
         )
