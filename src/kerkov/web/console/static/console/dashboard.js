@@ -14,6 +14,9 @@ const approvalOptions = Array.from(document.querySelectorAll(".approval-option")
 const tokenState = document.querySelector("#token-state");
 const workspaceTitle = document.querySelector("#workspace-title");
 const modeButtons = Array.from(document.querySelectorAll(".mode-chip"));
+const ctfObjectiveState = document.querySelector("#ctf-objective-state");
+const ctfStartButton = document.querySelector("#ctf-start");
+const ctfStopButton = document.querySelector("#ctf-stop");
 const expandToggle = document.querySelector("#expand-toggle");
 const agentsPanel = new AgentsPanel({ send: sendSocketEvent, requestId: createMessageId });
 const htbSettings = new HTBSettings({ send: sendSocketEvent, requestId: createMessageId });
@@ -34,6 +37,8 @@ let idleApprovalState = "normal";
 let requestedApprovalMode = null;
 let pendingSubmission = null;
 let assistantStream = null;
+// The engagement's active engagement-scoped workflow ("ctf" or null).
+let activeWorkflow = null;
 let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
@@ -116,6 +121,7 @@ const engagementPanel = new EngagementPanel({
     return "";
   },
   onStarted: () => {
+    setWorkflow(null);
     scriptsPanel.reset();
     inventoryPanel.showView("conversation", false);
     window.requestAnimationFrame(() => input.focus());
@@ -128,6 +134,7 @@ const engagementPanel = new EngagementPanel({
     agentsPanel.reset();
     inventoryPanel.showView("conversation", false);
     setMode(payload.mode, payload.mode_name);
+    setWorkflow(payload.workflow);
     idleApprovalState = payload.approval_mode;
     requestedApprovalMode = null;
     approvalState.textContent = idleApprovalState;
@@ -681,6 +688,8 @@ function syncControls() {
   for (const button of modeButtons) {
     button.disabled = !canInteract;
   }
+  ctfStartButton.disabled = !canInteract;
+  ctfStopButton.disabled = !canInteract;
   renderApprovalPicker();
 
   if (stopping) {
@@ -721,6 +730,14 @@ function requestApprovalMode(mode) {
   } else {
     appendActivity("Unable to change approval mode", true, "The console is offline.");
   }
+}
+
+function setWorkflow(name) {
+  activeWorkflow = name || null;
+  const ctfActive = activeWorkflow === "ctf";
+  ctfObjectiveState.textContent = ctfActive ? "Active in this engagement." : "Not active in this engagement.";
+  ctfStartButton.hidden = ctfActive;
+  ctfStopButton.hidden = !ctfActive;
 }
 
 function setMode(modeId, modeName) {
@@ -925,6 +942,16 @@ function handleSocketEvent(data) {
     return;
   }
 
+  if (data.type === "workflow.result") {
+    setWorkflow(payload.workflow);
+    if (answersTypedCommand(payload)) {
+      appendCommandReply(payload.title, { body: payload.detail || "" });
+    } else {
+      appendActivity(payload.title, payload.failed === true, payload.detail, payload.failed === true);
+    }
+    return;
+  }
+
   if (data.type.startsWith("engagement.")) {
     engagementPanel.handleEvent(data.type, payload);
     return;
@@ -965,6 +992,7 @@ function handleSocketEvent(data) {
     providerPanel.setInitial(payload.provider, payload.provider_ready);
     commandSuggestions.setCommands(payload.commands || []);
     setMode(payload.mode, payload.mode_name);
+    setWorkflow(payload.workflow);
     if (payload.error) {
       appendActivity("Provider not ready", true, payload.error);
     }
@@ -1146,6 +1174,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "mode.changed") {
+    setWorkflow(null);
     finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
@@ -1163,6 +1192,7 @@ function handleSocketEvent(data) {
   }
 
   if (data.type === "session.cleared") {
+    setWorkflow(null);
     finishAssistantStream();
     engagementPanel.contextChanged();
     agentsPanel.reset();
@@ -1313,6 +1343,13 @@ document.addEventListener("keydown", (event) => {
   ) {
     setConsoleExpanded(false);
   }
+});
+
+ctfStartButton.addEventListener("click", () => {
+  submitUserMessage("/workflow ctf start", { showInConversation: false });
+});
+ctfStopButton.addEventListener("click", () => {
+  submitUserMessage("/workflow ctf stop", { showInConversation: false });
 });
 
 for (const button of modeButtons) {

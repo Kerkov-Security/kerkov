@@ -96,6 +96,7 @@ from kerkov.web.runtime.output import WebOutputSink
 from kerkov.web.runtime.projects import ProjectPreparationRequest
 from kerkov.web.runtime.providers import WebProviders
 from kerkov.web.runtime.scripts import WebScripts
+from kerkov.web.runtime.workflows import run_workflow_command
 
 logger = get_logger("WebSession")
 
@@ -121,6 +122,8 @@ def web_command(message: str) -> str | None:
         return "approval_info" if bare else "approval_change"
     if parsed.intent is Intent.AUTONOMY:
         return "autonomy_info" if bare else "autonomy_change"
+    if parsed.intent is Intent.WORKFLOW:
+        return "workflow"
     if parsed.intent is Intent.MCP:
         # A prompt becomes an ordinary, stoppable turn.
         return None if is_prompt_command(stripped) else "mcp"
@@ -828,6 +831,10 @@ class WebKerkovSession:
             await run_mcp_command(self, message, bus)
             return True
 
+        if command == "workflow":
+            run_workflow_command(self, message, bus)
+            return True
+
         if command is not None and command.split("_")[0] in {
             "verbosity",
             "approval",
@@ -1161,6 +1168,7 @@ class WebKerkovSession:
                 "approval_mode": self.approval_mode_manager.current.value,
                 "verbosity": self.verbosity_manager.current.value,
                 "commands": command_catalog(self.mode_manager),
+                "workflow": self.engagement_store.workflow,
                 "compliance": compliance_readiness(self),
             },
         )

@@ -4,6 +4,7 @@ import json
 import types
 import unittest
 
+from kerkov.core.workflows.registry import CTF_OVERLAY
 from kerkov.models.basic_models import Message
 from kerkov.providers.anthrophic_provider import AnthropicProvider
 from kerkov.tools.exec_tool import ExecTool
@@ -192,6 +193,33 @@ class ByteStabilityTest(unittest.TestCase):
         # System + tools prefix is identical despite the ledger changing.
         self.assertEqual(turn1["system"], turn2["system"])
         self.assertEqual(turn1["tools"], turn2["tools"])
+
+
+class EngagementWorkflowOverlayTest(unittest.TestCase):
+    """An engagement workflow's overlay rides each turn without moving the cache."""
+
+    def setUp(self) -> None:
+        self.provider = _make_provider()
+
+    def test_overlay_tail_leaves_the_cached_prefix_unchanged(self):
+        turn = [
+            Message(role="system", content="STABLE SYSTEM PROMPT"),
+            Message(role="user", content="solve the web challenge"),
+        ]
+        plain = self.provider._build_request(turn, None, None, _tools())
+        with_overlay = self.provider._build_request(
+            [*turn, Message(role="system", content=CTF_OVERLAY)],
+            None,
+            None,
+            _tools(),
+        )
+        self.assertEqual(plain["system"], with_overlay["system"])
+        self.assertEqual(plain["tools"], with_overlay["tools"])
+        blocks = with_overlay["messages"][-1]["content"]
+        self.assertEqual(blocks[0]["text"], "solve the web challenge")
+        self.assertEqual(_cache_control(blocks[0]), CACHE)
+        self.assertEqual(blocks[-1]["text"], CTF_OVERLAY)
+        self.assertIsNone(_cache_control(blocks[-1]))
 
 
 class UsageSummingTest(unittest.TestCase):

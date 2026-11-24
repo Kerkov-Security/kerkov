@@ -288,8 +288,10 @@ tool-execution loop with operator approval.
   as side spend, except one carrying a stop-exempt `report`, whose findings still
   win. `/clear`, `clear` and `/mode` are not stoppable.
 - `core/workflows/`: both front ends read `WORKFLOW_DEFINITIONS` (role, static
-  overlay sent as a transient prompt). `ComplianceRun` gates plan calls before
-  shared approvals via a `WorkflowContext` of live getters; never snapshot them.
+  overlay sent as a transient prompt); CTF's active state is
+  `EngagementStore.workflow`, never front-end state. `ComplianceRun` gates plan
+  calls before shared approvals via a `WorkflowContext` of live getters; never
+  snapshot them.
   Denial, changed files or storage failure block runs; records live in
   `automation/compliance-runs/`. Web `compliance.run` shares admission, turn lock
   and Stop; CLI `/workflow` refuses `--message`. Keep one approval path.

@@ -165,8 +165,13 @@ Choose **Workflows → CTF → Connect HTB** and paste an App Token from
 protected credential store. HTB skills and future sessions use the same saved
 token. The token is submitted outside chat and cleared from the password field.
 The same setup dialog is also available under **Settings → Integrations**.
-CTF currently provides HTB connection setup and shortcuts to targets and the
-conversation. It does not start a machine or switch operating modes.
+**Start CTF** on the same page (or typing `/workflow ctf start`) sets the
+capture-the-flag objective for the current engagement: every later turn carries
+the flag objective and lab-scope rules until **Stop CTF**, `/workflow ctf stop`,
+`/clear`, `/mode` or a new engagement. The objective is saved with the
+engagement and restored on resume. CTF targets Red mode; starting it in another
+mode only warns, because changing mode starts a new engagement. It does not
+start an HTB machine.
 
 Setup requires working persistent credential storage because HTB helpers run in
 separate processes. If `HTB_API_TOKEN` is already set in the server environment,
