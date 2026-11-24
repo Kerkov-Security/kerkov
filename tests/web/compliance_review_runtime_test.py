@@ -162,3 +162,50 @@ async def test_review_requests_leave_stop_responsive_and_reject_overlap(tmp_path
         finally:
             release.set()
             await task
+
+
+@pytest.mark.asyncio
+async def test_control_page_routes_through_read_only_review(tmp_path):
+    session, request = _create_mock_session(tmp_path)
+    consumer = ConsoleConsumer()
+    consumer.session = session
+    consumer.bus = session.bus
+    consumer._compliance_review_task = None
+    consumer._review_evidence = ReviewEvidence()
+    await consumer.receive_json(
+        {
+            **request,
+            "type": "compliance.controls",
+            "query": {"search": "skip", "page_size": 25},
+        }
+    )
+    await consumer._compliance_review_task
+    event = session.bus.drain_nowait()[0]
+    assert event["type"] == "compliance.controls"
+    assert event["payload"]["request_id"] == request["request_id"]
+    assert event["payload"]["total"] == 6
+    assert event["payload"]["matched"] == 1
+    assert event["payload"]["controls"][0]["control_id"] == "skip"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        {"page": 0},
+        {"page": True},
+        {"page_size": 10000},
+        {"search": "x" * 257},
+        {"sort": "unexpected"},
+        {"impact": "critical"},
+    ],
+)
+async def test_control_page_rejects_invalid_queries(tmp_path, query):
+    session, request = _create_mock_session(tmp_path)
+    await review_saved_run(
+        session, {**request, "type": "compliance.controls", "query": query}
+    )
+    payload = session.bus.drain_nowait()[0]["payload"]
+    assert payload["request_id"] == request["request_id"]
+    assert "detail" in payload
+    assert "controls" not in payload

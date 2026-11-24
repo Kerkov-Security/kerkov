@@ -1,12 +1,15 @@
 """Control investigation, stale-response isolation and report downloads."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
+from kerkov.core.compliance.review import ControlQuery, browse_controls
+from tests.core.compliance.review_test import _create_mock_large_record
 from tests.web.browser_support import emit, last_request
 from tests.web.host_compliance_browser_test import (
     connect,
@@ -289,6 +292,7 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     expect(page.locator("#compliance-controls tr")).to_have_count(1)
     assert page.locator(".compliance-controls th:visible").all_text_contents() == [
         "Check",
+        "Impact",
         "Result",
     ]
     expect(page.locator("#compliance-controls")).not_to_contain_text("xccdf_example")
@@ -321,4 +325,153 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
     assert not page.evaluate(
         "window.testSocket.sent.some(message => message.type === 'compliance.run')"
+    )
+
+
+def _show_complete_record(page, tmp_path):
+    open_compliance(page, configure=True)
+    connect(page)
+    record = _create_mock_large_record(tmp_path)
+    record["request"]["scan"]["host"] = "example.com"
+    record["label"] = "Linux security assessment"
+    record["controls"] = record["before"]["controls"]
+
+    def respond(request):
+        try:
+            return {
+                **request,
+                **browse_controls(
+                    tmp_path, record, ControlQuery.model_validate(request["query"])
+                ),
+            }
+        except ValueError as exc:
+            return {**request, "detail": str(exc)}
+
+    page.expose_function("browseSavedControls", respond)
+    page.evaluate("""() => {
+      const send = window.testSocket.send.bind(window.testSocket);
+      window.testSocket.send = data => {
+        send(data);
+        const request = JSON.parse(data);
+        if (request.type === 'compliance.controls') window.browseSavedControls(request).then(payload =>
+          window.testSocket.emit({type: 'compliance.controls', payload}));
+      };
+    }""")
+    emit(page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]})
+    return record
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_complete_browser_pages_searches_and_filters_original_evidence(
+    dashboard, tmp_path, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1440 if width > 760 else 1100})
+    _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    page.locator("#compliance-control-filter").select_option("all")
+    page.locator("#compliance-page-size").select_option("25")
+    page.locator("#compliance-control-sort").select_option("control_id")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–25 of 275 matching checks · 275 total"
+    )
+    page.locator("#compliance-page-next").click()
+    expect(page.locator("#compliance-page-number")).to_have_text("Page 2 of 11")
+    expect(page.locator("#compliance-controls")).to_contain_text("control-025")
+    page.locator("#compliance-control-search").fill("SSH")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–6 of 6 matching checks · 275 total"
+    )
+    expect(page.locator("#compliance-controls")).to_contain_text("control-274")
+    expect(page.locator("#compliance-page-previous")).to_be_disabled()
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    assert not page.evaluate(
+        "window.testSocket.sent.some(message => message.type === 'compliance.run')"
+    )
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.locator("#compliance-control-search").evaluate("node => node.blur()")
+    page.screenshot(
+        path=str(tmp_path / f"compliance-full-browser-{width}.png"), full_page=True
+    )
+    page.locator("#compliance-control-impact").select_option("high")
+    expect(page.locator("#compliance-controls tr")).to_have_count(3)
+    page.locator("#compliance-control-filter").select_option("failed")
+    expect(page.locator("#compliance-controls tr")).to_have_count(1)
+    page.locator("#compliance-controls-clear").click()
+    expect(page.locator("#compliance-control-search")).to_have_value("")
+    expect(page.locator("#compliance-control-impact")).to_have_value("all")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–25 of 275 matching checks · 275 total"
+    )
+
+
+def test_complete_browser_reports_changed_evidence_and_retries(dashboard, tmp_path):
+    page = dashboard
+    record = _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    path = Path(record["before"]["report_artifact"])
+    original = path.read_bytes()
+    path.write_text("changed")
+    page.locator("#compliance-control-search").fill("SSH")
+    expect(page.locator("#compliance-filter-notice")).to_contain_text("SHA-256")
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    path.write_bytes(original)
+    page.locator("#compliance-controls-retry").click()
+    expect(page.locator("#compliance-page-summary")).to_contain_text(
+        "2 matching checks"
+    )
+
+
+def test_complete_browser_discards_old_search_and_run_responses(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["before"] = {
+        "report_artifact": "/workspace/source.json",
+        "report_sha256": "a" * 64,
+    }
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    first = last_request(page, "compliance.controls")
+    page.locator("#compliance-control-search").fill("new search")
+    emit(
+        page,
+        "compliance.controls",
+        {
+            **first,
+            "controls": [record["controls"][0]],
+            "total": 275,
+            "matched": 275,
+            "page": 1,
+            "pages": 6,
+            "page_size": 50,
+        },
+    )
+    page.wait_for_function(
+        "window.testSocket.sent.filter(message => message.type === 'compliance.controls').length === 2"
+    )
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    second = last_request(page, "compliance.controls")
+    record["id"] = "b" * 32
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    emit(page, "compliance.controls", {**second, "detail": "stale failure"})
+    expect(page.locator("#compliance-filter-notice")).not_to_contain_text(
+        "stale failure"
+    )
+
+
+def test_complete_browser_disconnect_discards_pending_page(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["before"] = {
+        "report_artifact": "/workspace/source.json",
+        "report_sha256": "a" * 64,
+    }
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    request = last_request(page, "compliance.controls")
+    page.evaluate("window.testSocket.close()")
+    emit(page, "compliance.controls", {**request, "detail": "stale failure"})
+    expect(page.locator("#compliance-filter-notice")).to_contain_text("Connection lost")
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    expect(page.locator("#compliance-run-review")).to_have_attribute(
+        "aria-busy", "false"
     )

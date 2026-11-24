@@ -83,9 +83,15 @@ assertions, observed failure messages, skip reasons and errors, plus an explicit
 remediation mapping for newly prepared built-in baseline plans. Custom profiles
 and older plans without a saved mapping require manual review. Check descriptions
 and messages come from Cinc evidence; Kerkov does not invent expected or observed
-values. Search by control ID, title or profile, or filter by the latest assessed
-outcome. **Unresolved** includes every outcome other than passed. These filters
-apply to the loaded control list, which remains bounded to 200 controls.
+values. Search all saved controls by control ID, title or profile, filter by the
+latest assessed outcome or impact, and sort by priority, impact, title or ID.
+**Unresolved** includes every outcome other than passed. Impact bands are high
+(at least 0.7), medium (0.4 to below 0.7), low (below 0.4), or unknown.
+The browser reads complete, hash-verified evidence in pages of 25, 50 or 100
+controls, independently of the model's 200-control summary. Changing a filter
+starts at page one. Missing or changed evidence shows an explicit error with a
+retry action; older records without evidence references show their saved summary
+only. Browsing does not start a model turn or execute tools.
 
 **Download HTML report** and **Download JSON report** export the selected saved
 run directly to your browser, without starting a model turn or executing tools.

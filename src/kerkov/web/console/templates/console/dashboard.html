@@ -13,9 +13,9 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=8">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=15" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=16" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -287,11 +287,18 @@
               <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
                 <div class="compliance-findings-toolbar"><h3>Checks</h3>
                 <div class="compliance-control-filters">
-                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" placeholder="Search checks">
+                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" maxlength="256" placeholder="Search all checks">
                   <label class="sr-only" for="compliance-control-filter">Latest assessed outcome</label><select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select>
+                  <label class="sr-only" for="compliance-control-impact">Control impact</label><select id="compliance-control-impact"><option value="all">All impacts</option><option value="high">High · ≥ 0.7</option><option value="medium">Medium · 0.4–&lt;0.7</option><option value="low">Low · &lt; 0.4</option><option value="unknown">Unknown impact</option></select>
+                  <label class="sr-only" for="compliance-control-sort">Sort controls</label><select id="compliance-control-sort"><option value="priority">Priority first</option><option value="impact_desc">Highest impact</option><option value="impact_asc">Lowest impact</option><option value="title">Check title</option><option value="control_id">Control ID</option></select>
                 </div></div>
                 <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Check</th><th id="compliance-impact-heading" scope="col">Impact</th><th id="compliance-before-heading" scope="col">Before</th><th id="compliance-after-heading" scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
-                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
+                <div id="compliance-pagination" class="compliance-pagination" hidden>
+                  <p id="compliance-page-summary" class="compliance-caption" role="status" aria-live="polite"></p>
+                  <div class="compliance-page-actions"><label>Rows <select id="compliance-page-size" aria-label="Controls per page"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select></label><button id="compliance-page-previous" class="inventory-button" type="button">Previous</button><span id="compliance-page-number" class="compliance-caption"></span><button id="compliance-page-next" class="inventory-button" type="button">Next</button></div>
+                </div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status" aria-live="polite"></p>
+                <button id="compliance-controls-retry" class="inventory-link" type="button" hidden>Retry loading checks</button>
                 <button id="compliance-controls-clear" class="inventory-link" type="button" hidden>Clear check filters</button>
                 <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button></div>
