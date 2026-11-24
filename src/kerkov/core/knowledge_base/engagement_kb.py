@@ -43,9 +43,9 @@ from kerkov.core.knowledge_base.ledger_identity import (
     addressed_names,
     addresses,
     finding_checks,
-    host_independent_key,
     host_keyed_identity,
     ledger_identity,
+    same_fact_groups,
 )
 from kerkov.core.knowledge_base.models import (
     RESOURCE_SECTIONS,
@@ -1348,7 +1348,8 @@ class EngagementKnowledgeBase:
         if len(names) < 2:
             return
         for section in (LedgerSection.SERVICES, LedgerSection.FINDINGS):
-            groups: Dict[str, List[sqlite3.Row]] = {}
+            candidates: List[sqlite3.Row] = []
+            entries: List[Dict[str, Any]] = []
             for candidate in conn.execute(
                 "SELECT * FROM ledger_entries WHERE section = ? ORDER BY id",
                 (section.value,),
@@ -1356,10 +1357,10 @@ class EngagementKnowledgeBase:
                 entry = _decode_entry(candidate["entry"])
                 named = addressed_names(section, entry)
                 if named & names and addresses(named) <= ips:
-                    groups.setdefault(host_independent_key(section, entry), []).append(
-                        candidate
-                    )
-            for rows in groups.values():
+                    candidates.append(candidate)
+                    entries.append(entry)
+            for group in same_fact_groups(section, entries):
+                rows = [candidates[index] for index in group]
                 if len(rows) < 2:
                     continue
                 merged = _merge_rows(rows)

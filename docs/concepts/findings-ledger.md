@@ -80,8 +80,8 @@ more than the write's own keys:
   other (`HostClaims`). A services write that states both `host` and `ip` contributes
   its own pair while it is matched.
 - **A linking hosts write is retroactive.** When a hosts write leaves a row with
-  both names, services on the same port and findings with the same title that were
-  already split across those names fold into the oldest.
+  both names, services on the same port and findings recording the same fact
+  (see below) that were already split across those names fold into the oldest.
 
 The rule that relationships are never guessed still holds. A pair comes only from
 an entry that states both forms itself — no DNS lookup, no name similarity, and
@@ -104,8 +104,9 @@ supplies — and is then keyed on `check_id@host` instead of `title@host`. The t
 form stays an alias, so a finding recorded before its check was known folds into
 the checked row, and a later title-only write still enriches it. A title alias
 never joins two findings with different `check_id`s; a title-only write that
-matches several checked findings joins none of them. Without a `check_id`, a
-reworded title is still a second row.
+matches several checked findings joins none of them. The retroactive fold after
+a linking hosts write follows the same rules. Without a `check_id`, a reworded
+title is still a second row.
 
 SSH credentials with an explicit `port` keep that port in their identity. Two
 containers published on different ports of the same host therefore retain
