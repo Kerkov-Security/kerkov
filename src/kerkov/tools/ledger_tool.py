@@ -17,7 +17,8 @@ from pydantic import Field, ValidationInfo, field_validator
 
 from kerkov.core.approval_scope import ApprovalScope
 from kerkov.core.knowledge_base.connections import SQLITE_MAX_ID
-from kerkov.core.knowledge_base.findings_ledger import FindingsLedger, identity_error
+from kerkov.core.knowledge_base.findings_ledger import FindingsLedger
+from kerkov.core.knowledge_base.ledger_identity import identity_error
 from kerkov.core.knowledge_base.models import LedgerSection
 from kerkov.tools.base_tool import BaseTool, ToolParams, ToolResult
 
