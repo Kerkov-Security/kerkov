@@ -82,6 +82,13 @@ more than the write's own keys:
 - **A linking hosts write is retroactive.** When a hosts write leaves a row with
   both names, services on the same port and findings with the same title that were
   already split across those names fold into the oldest.
+- **A fold keeps every name.** [Resource profiles](#resource-profiles) select
+  services and findings by an exact `host` or `ip`, so a merged service or finding
+  keeps the hostname in `host` and the address in `ip` instead of letting the newest
+  write's form replace the other; both profiles still show it. A finding that gains
+  an `ip` this way also answers to that address. A fold through another name that
+  would still drop one — two hostnames recorded on one address — is skipped, and
+  the rows stay apart.
 
 The rule that relationships are never guessed still holds. A pair comes only from
 an entry that states both forms itself — no DNS lookup, no name similarity, and

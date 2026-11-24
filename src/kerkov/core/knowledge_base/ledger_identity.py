@@ -9,7 +9,7 @@ import hashlib
 import json
 from collections import defaultdict
 from ipaddress import ip_address
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from pydantic import ValidationError
 
@@ -151,7 +151,10 @@ def ledger_identity(
     elif section is LedgerSection.FINDINGS:
         title = field_text(entry, "title")
         host = field_text(entry, "host")
+        ip = field_text(entry, "ip")
         identity = f"{title}@{host}" if title else ""
+        if title and host and ip and host != ip:
+            aliases.append(f"{title}@{ip}")
     elif section is LedgerSection.FLAGS:
         identity = field_text(entry, "value")
     else:  # NEXT_STEPS
@@ -169,7 +172,7 @@ def addressed_names(section: LedgerSection, entry: Dict[str, Any]) -> Set[str]:
     fields = {
         LedgerSection.HOSTS: ("ip", "hostname"),
         LedgerSection.SERVICES: ("host", "ip"),
-        LedgerSection.FINDINGS: ("host",),
+        LedgerSection.FINDINGS: ("host", "ip"),
     }.get(section, ())
     return {_norm(field_text(entry, f)) for f in fields if field_text(entry, f)}
 
@@ -184,6 +187,50 @@ def addresses(names: Iterable[str]) -> Set[str]:
             continue
         found.add(name)
     return found
+
+
+def _newest_form(entries: Sequence[Dict[str, Any]], names: Set[str]) -> str:
+    """How the newest entry naming one of `names` wrote it."""
+    for entry in reversed(entries):
+        for field in ("host", "ip"):
+            if _norm(field_text(entry, field)) in names:
+                return field_text(entry, field)
+    return ""
+
+
+def keep_machine_names(
+    section: LedgerSection, entries: Sequence[Dict[str, Any]], merged: Dict[str, Any]
+) -> Dict[str, Any]:
+    """`merged`, still naming the hostname and the address its entries recorded.
+
+    Profiles select services and findings by `host` and `ip`, so a fold across a
+    machine's names keeps the hostname in `host` and the address in `ip` rather
+    than letting the newest write's form replace the other. `entries` run oldest
+    first.
+    """
+    if section not in (LedgerSection.SERVICES, LedgerSection.FINDINGS):
+        return merged
+    names = set().union(*(addressed_names(section, entry) for entry in entries))
+    ips = addresses(names)
+    hostnames = names - ips
+    if len(ips) != 1 or not hostnames:
+        return merged
+    kept = dict(merged)
+    if _norm(field_text(merged, "host")) not in hostnames:
+        kept["host"] = _newest_form(entries, hostnames)
+    if _norm(field_text(merged, "ip")) not in ips:
+        kept["ip"] = _newest_form(entries, ips)
+    return kept
+
+
+def dropped_names(
+    section: LedgerSection,
+    folded: Iterable[Dict[str, Any]],
+    merged: Dict[str, Any],
+) -> Set[str]:
+    """Names the `folded` entries recorded that `merged` no longer states."""
+    recorded = set().union(*(addressed_names(section, entry) for entry in folded))
+    return recorded - addressed_names(section, merged)
 
 
 class HostClaims:

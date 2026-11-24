@@ -42,8 +42,10 @@ from kerkov.core.knowledge_base.ledger_identity import (
     HostClaims,
     addressed_names,
     addresses,
+    dropped_names,
     host_independent_key,
     host_keyed_identity,
+    keep_machine_names,
     ledger_identity,
 )
 from kerkov.core.knowledge_base.models import (
@@ -125,12 +127,22 @@ def _merge_dicts(stored: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, 
     return merged
 
 
-def _merge_rows(rows: Sequence[sqlite3.Row]) -> Dict[str, Any]:
-    """Merge stored entries oldest first, so newer non-empty values win."""
+def _fold_entries(
+    section: LedgerSection,
+    rows: Sequence[sqlite3.Row],
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge stored entries oldest first, then `payload`; newer non-empty values win.
+
+    A fold across a machine's names keeps both its hostname and its address.
+    """
+    entries = [_decode_entry(row["entry"]) for row in rows]
+    if payload is not None:
+        entries.append(payload)
     merged: Dict[str, Any] = {}
-    for row in rows:
-        merged = _merge_dicts(merged, _decode_entry(row["entry"]))
-    return merged
+    for entry in entries:
+        merged = _merge_dicts(merged, entry)
+    return keep_machine_names(section, entries, merged)
 
 
 def _row_addresses(section: LedgerSection, row: sqlite3.Row) -> Set[str]:
@@ -1150,7 +1162,7 @@ class EngagementKnowledgeBase:
                         merged = (
                             payload
                             if section is LedgerSection.CONTAINERS
-                            else _merge_dicts(_merge_rows(rows), payload)
+                            else _fold_entries(section, rows, payload)
                         )
                         key = dedup_key
                         if section in HOST_KEYED_SECTIONS:
@@ -1276,8 +1288,9 @@ class EngagementKnowledgeBase:
 
         A stored row answers to every form its merged fields link and to the
         names hosts entries pin to one address, not only to its `dedup_key`.
-        Exact key matches always fold, since the key is unique; a match through
-        another name is dropped when it would join two different IP addresses.
+        Exact key matches always fold, since the key is unique; matches through
+        another name are dropped when they would join two different IP addresses
+        or leave a name they recorded, which profiles select on, unstated.
         """
         claims = self._host_claims(conn, write=(section, payload))
         wanted = set(keys) | host_keyed_identity(section, payload, claims)
@@ -1296,9 +1309,19 @@ class EngagementKnowledgeBase:
             *(_row_addresses(section, row) for row in exact_rows)
         )
         if known:
-            return [row for row in matched if _row_addresses(section, row) <= known]
-        found = set().union(*(_row_addresses(section, row) for row in matched))
-        return matched if len(found) <= 1 else []
+            matched = [row for row in matched if _row_addresses(section, row) <= known]
+        elif len(set().union(*(_row_addresses(section, row) for row in matched))) > 1:
+            return []
+        if not matched:
+            return []
+        folded = sorted([*exact_rows, *matched], key=lambda row: int(row["id"]))
+        if dropped_names(
+            section,
+            (_decode_entry(row["entry"]) for row in matched),
+            _fold_entries(section, folded, payload),
+        ):
+            return []
+        return matched
 
     def _refold_host_dependents(
         self, conn: sqlite3.Connection, host_id: int, now: str
@@ -1334,7 +1357,11 @@ class EngagementKnowledgeBase:
             for rows in groups.values():
                 if len(rows) < 2:
                     continue
-                merged = _merge_rows(rows)
+                merged = _fold_entries(section, rows)
+                if dropped_names(
+                    section, (_decode_entry(row["entry"]) for row in rows), merged
+                ):
+                    continue
                 key = self._free_dedup_key(
                     conn,
                     section,

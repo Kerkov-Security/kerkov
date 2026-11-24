@@ -163,9 +163,12 @@ learning more about a fact never forks it.
 Hosts, services and findings also match across a machine's names. A host recorded
 with both `ip` and `hostname` is found by either, and services and findings
 recorded by hostname and by IP merge once a hosts entry records that hostname with
-exactly one IP — including rows already recorded before that host entry. A
-hostname recorded against several IPs links none of them, and nothing is inferred
-from DNS or similar names. Findings with different titles stay separate.
+exactly one IP — including rows already recorded before that host entry. The
+merged row keeps the hostname in `host` and the address in `ip`, so profiles for
+either name still include it; rows that would lose a name (two hostnames on one
+IP) stay separate. A hostname recorded against several IPs links none of them,
+and nothing is inferred from DNS or similar names. Findings with different titles
+stay separate.
 
 For the fact sections, ownership and evidence merge as follows:
 
