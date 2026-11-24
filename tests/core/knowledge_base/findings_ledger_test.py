@@ -450,6 +450,31 @@ class FindingCheckIdTest(_LedgerTestCase):
         self.assertEqual([f.id for f in findings], [first])
         self.assertEqual(findings[0].entry["check_id"], "ftp-anon")
 
+    def test_check_answers_to_a_stored_address(self):
+        first = self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "Anonymous FTP",
+                "check_id": "ftp-anon",
+                "host": "files",
+                "ip": "10.0.0.8",
+            },
+        )
+
+        self._add(
+            LedgerSection.FINDINGS,
+            {
+                "title": "FTP allows anonymous login",
+                "check_id": "ftp-anon",
+                "host": "10.0.0.8",
+                "severity": "high",
+            },
+        )
+
+        findings = self._findings()
+        self.assertEqual([f.id for f in findings], [first])
+        self.assertEqual(findings[0].entry["severity"], "high")
+
     def test_linking_hosts_leaves_a_title_naming_two_checks(self):
         self._add(
             LedgerSection.FINDINGS,
@@ -486,6 +511,81 @@ class FindingCheckIdTest(_LedgerTestCase):
         block = _run(self.ledger.serialize())
         self.assertIn("[critical] Log4Shell (CVE-2021-44228) @app01", block)
         self.assertNotIn("check_id=", block)
+
+
+class HostIdentityProfileTest(_LedgerTestCase):
+    """A fold across a machine's names keeps every name its rows were selected by."""
+
+    def _target(self, kind, value):
+        return self._add(LedgerSection.TARGETS, {"kind": kind, "value": value})
+
+    def _profile_counts(self, entry_id):
+        profile = _run(self.ledger.profile(entry_id))
+        return profile["counts"]["services"], profile["counts"]["findings"]
+
+    def test_linking_a_host_keeps_both_names_in_profiles(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        for host in ("192.0.2.8", "files.example"):
+            self._add(LedgerSection.SERVICES, {"host": host, "port": "21"})
+            self._add(LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": host})
+
+        self._add(LedgerSection.HOSTS, {"ip": "192.0.2.8", "hostname": "files.example"})
+
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.SERVICES))), 1)
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.FINDINGS))), 1)
+        self.assertEqual(self._profile_counts(ip_target), (1, 1))
+        self.assertEqual(self._profile_counts(domain_target), (1, 1))
+
+    def test_finding_matched_through_a_known_host_keeps_both_names(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        self._add(LedgerSection.HOSTS, {"ip": "192.0.2.8", "hostname": "files.example"})
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "192.0.2.8"}
+        )
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "files.example"}
+        )
+        self._add(
+            LedgerSection.FINDINGS, {"title": "Anonymous FTP", "host": "192.0.2.8"}
+        )
+
+        self.assertEqual(len(_run(self.ledger.list(LedgerSection.FINDINGS))), 1)
+        self.assertEqual(self._profile_counts(ip_target), (0, 1))
+        self.assertEqual(self._profile_counts(domain_target), (0, 1))
+
+    def test_single_name_write_keeps_the_hostname_a_service_recorded(self):
+        ip_target = self._target("ip", "192.0.2.8")
+        domain_target = self._target("domain", "files.example")
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "files.example", "ip": "192.0.2.8", "port": "21"},
+        )
+        self._add(
+            LedgerSection.SERVICES, {"host": "192.0.2.8", "port": "21", "v": "3.0"}
+        )
+
+        services = _run(self.ledger.list(LedgerSection.SERVICES))
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0].entry["v"], "3.0")
+        self.assertEqual(self._profile_counts(ip_target), (1, 0))
+        self.assertEqual(self._profile_counts(domain_target), (1, 0))
+
+    def test_two_hostnames_on_one_address_are_not_folded_into_one(self):
+        first = self._target("domain", "files.example")
+        second = self._target("domain", "ftp.example")
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "files.example", "ip": "192.0.2.8", "port": "21"},
+        )
+        self._add(
+            LedgerSection.SERVICES,
+            {"host": "ftp.example", "ip": "192.0.2.8", "port": "21"},
+        )
+
+        self.assertEqual(self._profile_counts(first), (1, 0))
+        self.assertEqual(self._profile_counts(second), (1, 0))
 
 
 class SerializationTest(_LedgerTestCase):
