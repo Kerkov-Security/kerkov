@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("playwright.async_api")
 
+from kerkov.core.process.subprocess_support import ensure_subprocess_support
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.events import WebEventBus
 
@@ -211,3 +212,37 @@ async def test_operator_control_and_persistent_profile_reopen(tmp_path) -> None:
         await asyncio.to_thread(server.shutdown)
         server.server_close()
         thread.join(timeout=1)
+
+
+class _StubSubprocessLoop(asyncio.SelectorEventLoop):
+    _make_subprocess_transport = asyncio.BaseEventLoop._make_subprocess_transport
+
+
+def test_real_chromium_starts_on_loop_without_native_subprocess_support() -> None:
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LoginPageHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    loop = _StubSubprocessLoop()
+    ensure_subprocess_support(loop)
+
+    async def browse() -> str:
+        owner = WebBrowser(WebEventBus())
+        try:
+            started = await owner.tool.execute(
+                {"action": "start", "url": f"http://127.0.0.1:{server.server_port}/"}
+            )
+            if not started.success and "Executable doesn't exist" in (
+                started.error or ""
+            ):
+                pytest.skip("Install Chromium with playwright install chromium")
+            assert started.success, started.error
+            return json.loads(started.output)["title"]
+        finally:
+            await owner.close()
+
+    try:
+        assert loop.run_until_complete(browse()) == "Local browser test"
+    finally:
+        loop.close()
+        server.shutdown()
+        server.server_close()

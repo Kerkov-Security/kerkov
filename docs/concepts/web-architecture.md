@@ -61,6 +61,17 @@ received reports available for inspection.
 - `kerkov.core.conversation_engine` remains the shared orchestration loop for
   CLI, agents, and web.
 
+Daphne runs Channels on Twisted's asyncio reactor, which needs a selector event
+loop. On Windows that loop has no subprocess transport, so
+`asyncio.create_subprocess_exec` raises `NotImplementedError`. When a WebSocket
+connects, `ensure_subprocess_support()` (`core/process/subprocess_support.py`)
+gives such a loop asyncio's subprocess transport backed by `subprocess.Popen`,
+with a thread per pipe and an exit watcher. Playwright, Docker, Compose, OpenGrep,
+non-PTY `exec` and other `asyncio.create_subprocess_*` callers then keep their
+timeouts, cancellation and process-tree cleanup without changes. Loops that
+already support subprocesses, including POSIX loops and the CLI's Proactor loop,
+are left untouched.
+
 ## Event Contract
 
 Browser events use this envelope:
