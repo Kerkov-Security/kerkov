@@ -35,7 +35,6 @@ from typing import (
 
 from rich.console import Console, Group
 from rich.markdown import Markdown
-from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
@@ -59,6 +58,7 @@ from kerkov.core.session.approval_rules import (
     render_call_string,
     split_write_content_lines,
 )
+from kerkov.core.tool_call_display import summarize_call, summarize_output
 from kerkov.core.tool_output import (  # noqa: F401  (re-exported)
     METADATA_VALUE_MAX_CHARS,
     TOOL_OUTPUT_HEAD_CHARS,
@@ -105,6 +105,9 @@ _TOOL_ARTIFACT_KINDS = {
     "http": ArtifactKind.HTTP_RESPONSE,
 }
 WRITE_PREVIEW_MAX_LINES = 30
+_CALL_PREFIX = "→ "
+_OUTCOME_INDENT = "  "
+_PREVIEW_INDENT = "    "
 
 
 def _recalled_artifact_ref(tool_result: ToolResult) -> Optional[int]:
@@ -573,20 +576,15 @@ class ConsoleSink(OutputSink):
         self._console.print()
 
     def tool_start(self, tool_name: str, params: dict) -> None:
+        width = self._console.width - len(_CALL_PREFIX)
+        self._print_line(_CALL_PREFIX + summarize_call(tool_name, params, width))
         if tool_name == "write":
-            self._render_write_start(params)
-            return
+            self._render_write_preview(params)
 
-        call = escape(f"{tool_name}({params})")
-        self._console.print(f"[dim]→ Executing: {call}[/dim]")
-
-    def _render_write_start(self, params: dict) -> None:
+    def _render_write_preview(self, params: dict) -> None:
         file_path = str(params.get("file_path", "<unknown>"))
         content = str(params.get("content", ""))
         lines = split_write_content_lines(content)
-
-        call = escape(render_call_string("write", params))
-        self._console.print(f"[dim]→ Executing: {call}[/dim]")
         if not lines:
             return
 
@@ -614,14 +612,25 @@ class ConsoleSink(OutputSink):
         )
 
     def tool_succeeded(self, tool_name: str, result: ToolResult) -> None:
-        self._console.print("[dim green]✓ Command executed[/dim green]")
-        if result.output:
-            trimmed = escape(result.output[:1000])
-            suffix = "..." if len(result.output) > 1000 else ""
-            self._console.print(f"[dim]{trimmed}{suffix}[/dim]")
+        output = result.output or ""
+        status = "✓ done"
+        if output:
+            status += f" · {format_bytes(len(output.encode('utf-8')))}"
+        self._print_outcome(status, "dim green", output)
 
     def tool_failed(self, tool_name: str, result: ToolResult) -> None:
-        self._console.print(f"[dim red]✗ Error: {escape(str(result.error))}[/dim red]")
+        self._print_outcome("✗ failed", "dim red", str(result.error or ""))
+
+    def _print_outcome(self, status: str, style: str, body: str) -> None:
+        self._print_line(_OUTCOME_INDENT + status, style)
+        width = self._console.width - len(_PREVIEW_INDENT)
+        for line in summarize_output(body, width):
+            self._print_line(_PREVIEW_INDENT + line)
+
+    def _print_line(self, line: str, style: str = "dim") -> None:
+        # A Text renderable is neither parsed as markup nor auto-highlighted,
+        # and cropping by cells keeps wide characters from wrapping the line.
+        self._console.print(Text(line, style=style), no_wrap=True, overflow="ellipsis")
 
     def token_usage(self, usage: Optional[TokenUsage]) -> None:
         if usage:
@@ -1036,10 +1045,6 @@ class ConversationEngine:
             session.output.assistant_text(response.content)
 
         assert response.tool_calls is not None
-        tool_names = [tc.tool_name for tc in response.tool_calls]
-        session.output.info(
-            f"→ Executing {len(response.tool_calls)} tool(s): {', '.join(tool_names)}"
-        )
 
         self._append(
             session,

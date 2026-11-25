@@ -102,8 +102,6 @@ I'll run the image vulnerability scan and Python SAST scan in parallel, then
 apply the stated gate exactly: fail for any Critical/High image vulnerability or
 any ERROR SAST finding.
 
-→ Executing 2 tool(s): vulnerability_scan, sast_scan
-
 vulnerability_scan  target=wordpress:php8.2-apache  source_type=image
   {
     "engine": "grype",
@@ -132,14 +130,12 @@ sast_scan  target=/home/kali/code/ci-demo/app  configs=[python-ci.yml]
 The image report was too large for the scanner's inline summary, so I'll extract
 severity counts from the saved Grype JSON without rerunning the scan.
 
-→ Executing 1 tool(s): exec
 exec  jq ... grype-call_<id>.json
-  ✗ Error: bash: line 1: jq: command not found
+  ✗ failed
+    bash: line 1: jq: command not found
 
-→ Executing 1 tool(s): write
 write → scripts/ci-gate/count_grype_severities.py   (a 20-line severity counter)
 
-→ Executing 1 tool(s): exec
 exec  python3 scripts/ci-gate/count_grype_severities.py .../grype-call_<id>.json
   {
     "total": 1277,
@@ -149,7 +145,7 @@ exec  python3 scripts/ci-gate/count_grype_severities.py .../grype-call_<id>.json
     }
   }
 
-→ Executing 2 tool(s): ledger, ledger
+ledger  add ×2
   Recorded to findings ledger as entry #1.   (image: 34 Critical, 224 High — violates policy)
   Recorded to findings ledger as entry #2.   (SAST: 2 ERROR command-injection findings)
 

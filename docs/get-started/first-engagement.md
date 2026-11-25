@@ -55,8 +55,6 @@ sockets, map processes and versions where possible, then probe only 127.0.0.1 to
 validate exposed services and flag concrete risks. I will not scan non-loopback
 interfaces.
 
-→ Executing 2 tool(s): skill_lookup, exec
-
 skill_lookup  load localhost-scan
 exec  ss -lntp / ss -lnup / ip -brief addr show lo
   === TCP LISTENERS ===
@@ -64,8 +62,6 @@ exec  ss -lntp / ss -lnup / ip -brief addr show lo
   === UDP LISTENERS ===
   UNCONN 0 0 127.0.0.1:323 0.0.0.0:*
   UNCONN 0 0 [::1]:323 [::]:*
-
-→ Executing 2 tool(s): exec, exec
 
 exec  nmap -n -Pn -sT -sV -sC -p- --version-light 127.0.0.1
   Not shown: 65534 closed tcp ports (conn-refused)
@@ -79,13 +75,11 @@ exec  ps -ww -o user,pid,ppid,lstart,args -p 15815
   kali 15815 15811 ... node /home/kali/.vscode-server/bin/<commit>/out/server-main.js
   --host=127.0.0.1 --port=0 --connection-token=[redacted] --use-host-proxy ...
 
-→ Executing 2 tool(s): exec, exec   (identify the UDP/323 listener)
-
 exec  nmap -n -Pn -sU -sV --version-light -p 323 127.0.0.1
   PORT    STATE         SERVICE VERSION
   323/udp open|filtered unknown
 
-→ Executing 3 tool(s): ledger, ledger, ledger
+ledger  add ×3
   Recorded to hosts ledger as entry #1.
   Recorded to services ledger as entry #2.
   Recorded to services ledger as entry #3.
@@ -120,7 +114,7 @@ kerkov › Add anything notable to the findings ledger, then summarize what we k
 ```
 
 ```text
-→ Executing 2 tool(s): ledger, ledger
+ledger  add ×2
   Recorded to findings ledger as entry #4.
   Recorded to findings ledger as entry #5.
 

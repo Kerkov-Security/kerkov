@@ -170,7 +170,7 @@ def _rule_matches(rule: ApprovalRule, tool_name: str, params: Dict[str, Any]) ->
     return True
 
 
-def _escape_display_controls(value: str) -> str:
+def escape_display_controls(value: str) -> str:
     """Escape characters that can alter terminal or browser display layout."""
     return "".join(
         character if character.isprintable() else ascii(character)[1:-1]
@@ -190,9 +190,9 @@ def render_call_string(tool_name: str, params: Dict[str, Any]) -> str:
     """Render a stable tool call summary, omitting write payloads."""
     if tool_name == "write":
         file_path = str(params.get("file_path", "<unknown>"))
-        display_path = _escape_display_controls(file_path)
+        display_path = escape_display_controls(file_path)
         file_type = Path(file_path).suffix.lstrip(".").lower() or "text"
-        display_file_type = _escape_display_controls(file_type)
+        display_file_type = escape_display_controls(file_type)
         content = str(params.get("content", ""))
         line_count = len(split_write_content_lines(content))
         line_label = "line" if line_count == 1 else "lines"

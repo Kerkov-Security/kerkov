@@ -46,8 +46,6 @@ addresses to distinguish loopback-only services from those exposed on all
 interfaces; UDP coverage will come from the local socket table to avoid
 privileged intrusive scanning.
 
-→ Executing 3 tool(s): exec, exec, exec
-
 exec  ss -lntp / ss -lnup / uname -a / ip -brief address
   === SYSTEM ===
   Linux BY2022A98604034 6.18.40.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC
@@ -73,8 +71,6 @@ exec  nmap -6 -n -Pn -sT -sV -p- --version-light --reason ::1
   All 65535 scanned ports on ::1 are in ignored states.
   Not shown: 65535 closed tcp ports (conn-refused)
 
-→ Executing 4 tool(s): exec, exec, exec, exec
-
 exec  nmap -sT -sV -sC --script=http-headers,http-methods,http-title -p 40229 127.0.0.1
   PORT      STATE SERVICE VERSION
   40229/tcp open  unknown
@@ -99,13 +95,11 @@ exec  nmap -n -Pn -sU -p 323 --version-light 127.0.0.1
   PORT    STATE         SERVICE
   323/udp open|filtered unknown
 
-→ Executing 2 tool(s): exec, exec   (confirm the port is loopback-only)
-
 exec  nmap -n -Pn -sT -p 40229 --reason 172.24.114.99
   PORT      STATE  SERVICE REASON
   40229/tcp closed unknown conn-refused   ← not exposed on the WSL interface
 
-→ Executing 3 tool(s): ledger, ledger, ledger
+ledger  add ×3
   Recorded to hosts ledger as entry #1.
   Recorded to services ledger as entry #2.
   Recorded to services ledger as entry #3.

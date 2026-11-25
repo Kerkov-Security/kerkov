@@ -515,6 +515,34 @@ class PromptRenderingTest(unittest.TestCase):
         self.assertIn("allow rule:", output)
         self.assertIn("ls [[]/dim[]]", output)
 
+    def _verdict(self, *answers: str, requester: Optional[str] = None) -> str:
+        """What stays on screen once the transient box has been erased."""
+        console = self._patch_console()
+        helper = _create_helper()
+        self._mock_answers(helper, *answers)
+        asyncio.run(
+            helper._prompt_approval_box(
+                _create_mock_tool("exec"), {"command": "nmap 10.0.0.5"}, requester
+            )
+        )
+        return console.file.getvalue().split("\x1b[2K")[-1]
+
+    def test_verdict_does_not_repeat_the_call(self):
+        self.assertEqual(self._verdict("1"), "  ✓ approved\n")
+
+    def test_denial_verdict_does_not_repeat_the_call(self):
+        self.assertEqual(self._verdict("2", ""), "  ✗ denied\n")
+
+    def test_verdict_names_the_requesting_agent(self):
+        self.assertEqual(
+            self._verdict("1", requester="scout"), "  ✓ approved · scout\n"
+        )
+
+    def test_saved_rule_verdict_shows_the_rule_not_the_call(self):
+        verdict = self._verdict("3")
+        self.assertTrue(verdict.startswith("  ✓ approved · allow rule: exec("))
+        self.assertEqual(verdict.count("\n"), 1)
+
     def test_eof_at_choice_denies_instead_of_raising(self):
         """Ctrl-D closes the prompt as a denial rather than crashing the turn."""
         console = self._patch_console()
