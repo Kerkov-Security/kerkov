@@ -399,3 +399,32 @@ def test_control_browser_compares_full_phases_and_rechecks_cached_evidence(tmp_p
     Path(record["before"]["report_artifact"]).write_text("changed")
     with pytest.raises(ValueError, match="SHA-256"):
         browse_controls(tmp_path, record, ControlQuery(), evidence=evidence)
+
+
+@pytest.mark.parametrize("has_latest_evidence", [False, True])
+def test_reassessment_filters_a_previous_pass_as_unassessed(
+    tmp_path, has_latest_evidence
+):
+    record = _create_mock_large_record(tmp_path)
+    record["request"].update(action="assess", assessment_of="b" * 32)
+    if has_latest_evidence:
+        source = Path(record["before"]["report_artifact"])
+        changed = json.loads(source.read_bytes())
+        del changed["profiles"][0]["controls"][1]
+        after = source.with_name("after.json")
+        after.write_text(json.dumps(changed))
+        record["after"] = {
+            **record["before"],
+            "report_artifact": str(after),
+            "report_sha256": hashlib.sha256(after.read_bytes()).hexdigest(),
+        }
+    for outcome in ("passed", "unassessed", "unresolved"):
+        result = browse_controls(
+            tmp_path, record, ControlQuery(search="control-001", outcome=outcome)
+        )
+        if outcome == "passed":
+            assert result["matched"] == 0
+        else:
+            assert result["matched"] == 1
+            assert result["controls"][0]["before"] == "passed"
+            assert result["controls"][0]["after"] == "unassessed"

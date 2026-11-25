@@ -205,6 +205,10 @@ def browse_controls(
     controls = control_comparison(phases)
     total = len(controls)
     search = query.search.strip().casefold()
+    request = record["request"]
+    reassessment = request["action"] == "assess" and (
+        record.get("after") or request.get("assessment_of")
+    )
     priority = {
         status: index
         for index, status in enumerate(
@@ -214,7 +218,9 @@ def browse_controls(
 
     def latest(control: dict[str, Any]) -> str:
         return (
-            control["after"] if control["after"] != "unassessed" else control["before"]
+            control["after"]
+            if reassessment or control["after"] != "unassessed"
+            else control["before"]
         )
 
     def impact_band(control: dict[str, Any]) -> str:

@@ -83,8 +83,10 @@ assertions, observed failure messages, skip reasons and errors, plus an explicit
 remediation mapping for newly prepared built-in baseline plans. Custom profiles
 and older plans without a saved mapping require manual review. Check descriptions
 and messages come from Cinc evidence; Kerkov does not invent expected or observed
-values. Search all saved controls by control ID, title or profile, filter by the
-latest assessed outcome or impact, and sort by priority, impact, title or ID.
+values. Search all saved controls by control ID, title or profile, filter by
+outcome or impact, and sort by priority, impact, title or ID. A control missing
+from a reassessment is **Unassessed** in the current result. Its previous outcome
+remains available in the control details.
 **Unresolved** includes every outcome other than passed. Impact bands are high
 (at least 0.7), medium (0.4 to below 0.7), low (below 0.4), or unknown.
 The table labels impact bands beside their numeric values and uses labeled
