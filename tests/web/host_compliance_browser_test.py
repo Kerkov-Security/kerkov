@@ -493,7 +493,7 @@ def test_scap_path_edits_discard_stale_responses_and_clear_the_digest(dashboard:
         "context_id": new["context_id"],
         "sha256": "b" * 64,
         "profiles": [{"id": "xccdf_example_profile_server", "title": "Server"}],
-        "ansible_available": False,
+        "ansible_available": True,
     }
     emit(page, new["type"], {**result, "request_id": old["request_id"]})
     expect(digest).to_have_value("")
@@ -501,13 +501,64 @@ def test_scap_path_edits_discard_stale_responses_and_clear_the_digest(dashboard:
     emit(page, new["type"], {**result, "request_id": new["request_id"]})
     expect(digest).to_have_value("b" * 64)
     expect(profile).to_have_value("xccdf_example_profile_server")
-    expect(page.locator("#compliance-scap-status")).to_contain_text("Install Ansible")
+    expect(page.locator("#compliance-scap-status")).to_contain_text(
+        "Ansible is available"
+    )
     path.fill("another.xml")
     expect(digest).to_have_value("")
     expect(profile).to_be_disabled()
     page.locator('[data-compliance-action="assess"]').click()
     expect(page.locator("#compliance-status")).to_contain_text("Inspect the datastream")
     assert not sent(page, "compliance.run")
+
+
+def test_missing_ansible_blocks_scanning_until_rechecked(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    page.get_by_label("Datastream path").fill("datastream.xml")
+    page.get_by_role("button", name="Inspect datastream").click()
+    inspection = last_request(page, "compliance.datastream.inspect")
+    profile_id = "xccdf_example_profile_server"
+    emit(
+        page,
+        inspection["type"],
+        {
+            **inspection,
+            "sha256": "a" * 64,
+            "profiles": [{"id": profile_id, "title": "Server"}],
+            "ansible_available": False,
+        },
+    )
+    page.get_by_label("Target distribution", exact=True).fill("Ubuntu")
+    page.get_by_label("Target distribution version").fill("24.04")
+    ready = page.locator("#compliance-settings-status")
+    scan = page.get_by_role("button", name="Scan host", exact=True)
+    recheck = page.get_by_role("button", name="Recheck Ansible")
+    expect(ready).to_contain_text("Ansible is missing on the controller")
+    expect(scan).to_be_disabled()
+    recheck.click()
+    check = last_request(page, "compliance.ansible.check")
+    expect(recheck).to_be_disabled()
+    emit(page, check["type"], {**check, "ansible_available": False})
+    expect(scan).to_be_disabled()
+    recheck.click()
+    retry = last_request(page, "compliance.ansible.check")
+    assert retry["request_id"] != check["request_id"]
+    emit(page, retry["type"], {**retry, "ansible_available": True})
+    expect(ready).to_contain_text("Ready to assess")
+    expect(recheck).to_be_hidden()
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(profile_id)
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value("a" * 64)
+    assert not sent(page, "compliance.run")
+    scan.click()
+    assert (
+        last_request(page, "compliance.run")["workflow_request"]["scan"]["openscap"][
+            "profile_id"
+        ]
+        == profile_id
+    )
 
 
 def test_saved_scap_reassessment_reuses_the_pinned_profile(dashboard: Page):

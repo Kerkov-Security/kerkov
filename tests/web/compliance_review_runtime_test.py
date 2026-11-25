@@ -113,6 +113,30 @@ async def test_datastream_inspection_rejects_relative_workspace_escape(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_ansible_can_be_rechecked_without_reading_a_datastream(tmp_path):
+    session, request = _create_mock_session(tmp_path)
+    consumer = ConsoleConsumer()
+    consumer.session = session
+    consumer.bus = session.bus
+    consumer._compliance_review_task = None
+    consumer._review_evidence = ReviewEvidence()
+    with (
+        patch(
+            "kerkov.web.runtime.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+        patch("kerkov.web.runtime.compliance.local_file") as read_file,
+    ):
+        await consumer.receive_json({**request, "type": "compliance.ansible.check"})
+        await consumer._compliance_review_task
+    read_file.assert_not_called()
+    event = session.bus.drain_nowait()[0]
+    assert event["type"] == "compliance.ansible.check"
+    assert event["payload"]["request_id"] == request["request_id"]
+    assert event["payload"]["ansible_available"] is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["context", "workspace", "closed"])
 async def test_review_discards_response_when_engagement_retires(tmp_path, change):
     session, request = _create_mock_session(tmp_path)

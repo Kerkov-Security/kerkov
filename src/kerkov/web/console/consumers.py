@@ -329,6 +329,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             return
 
         if event_type in (
+            "compliance.ansible.check",
             "compliance.control",
             "compliance.datastream.inspect",
             "compliance.export",

@@ -141,6 +141,8 @@ async def read_compliance_details(
     event_type = content["type"]
 
     def read() -> dict[str, Any]:
+        if event_type == "compliance.ansible.check":
+            return {"ansible_available": ansible_binary() is not None}
         if event_type == "compliance.datastream.inspect":
             path = content.get("path")
             if (
@@ -175,11 +177,10 @@ async def read_compliance_details(
     try:
         result = await asyncio.to_thread(read)
     except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
-        subject = (
-            "inspect the datastream"
-            if event_type == "compliance.datastream.inspect"
-            else "load the saved assessment"
-        )
+        subject = {
+            "compliance.ansible.check": "check Ansible on the controller",
+            "compliance.datastream.inspect": "inspect the datastream",
+        }.get(event_type, "load the saved assessment")
         result = {"detail": f"Could not {subject}: {exc}"}
     if (
         not session._closed

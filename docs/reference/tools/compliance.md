@@ -562,7 +562,9 @@ preparation rechecks the selected digest and profile before requesting approval.
 
 Select a profile, enter the exact target distribution and release reported by
 Ansible, and select **Scan host**. The controller can check its own Ansible
-executable and the local SSH files. The approved scan checks target access,
+executable and the local SSH files. If Ansible is missing, install it and
+select **Recheck Ansible** to update readiness with the current profile intact.
+The approved scan checks target access,
 privileges, Python, platform and OpenSCAP. In chat, supply the same settings
 including the full XCCDF profile ID and digest for `compliance_scan`. Use
 `oscap info <datastream>` on a system with OpenSCAP to list profile IDs manually.

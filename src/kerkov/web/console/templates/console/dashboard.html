@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
     <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=10">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=18" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=22" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -189,6 +189,7 @@
                 <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
                 <p id="compliance-settings-status" class="compliance-caption" role="status"></p>
                   <div class="compliance-actions compliance-main-actions">
+                    <button type="button" id="compliance-scap-recheck" class="inventory-button" hidden>Recheck Ansible</button>
                     <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
                     <button id="compliance-discover" type="button" class="inventory-button inventory-primary">Find assessment details</button>
                     <button type="button" class="inventory-button inventory-primary" data-compliance-action="assess">Scan host</button>
