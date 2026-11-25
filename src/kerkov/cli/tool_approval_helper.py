@@ -140,7 +140,6 @@ class ToolApprovalCliHelper:
         requester: Optional[str],
     ) -> ToolApprovalResult:
         call_string = render_call_string(tool.name, parameters)
-        display_call = escape(call_string)
 
         content = Text()
         content.append("Call: ", style="bold")
@@ -198,13 +197,11 @@ class ToolApprovalCliHelper:
 
         if closed_without_answer:
             logger.info(f"Tool '{tool.name}' denied: approval prompt closed (EOF)")
-            console.print(f"[dim red]✗ denied[/dim red] [dim]{display_call}[/dim]")
+            _print_verdict("✗ denied", "dim red", requester)
             return ToolApprovalResult(approved=False)
 
         if choice == "1":
-            console.print(
-                f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim]"
-            )
+            _print_verdict("✓ approved", "dim green", requester)
             return ToolApprovalResult(approved=True)
 
         if choice == "2":
@@ -221,7 +218,7 @@ class ToolApprovalCliHelper:
             logger.info(
                 f"Tool '{tool.name}' denied by user. Reason: {user_msg or 'none given'}"
             )
-            console.print(f"[dim red]✗ denied[/dim red] [dim]{display_call}[/dim]")
+            _print_verdict("✗ denied", "dim red", requester)
             return ToolApprovalResult(approved=False, user_message=user_msg or None)
 
         # A save rung: when a workspace is active, write to the workspace tier and
@@ -232,10 +229,11 @@ class ToolApprovalCliHelper:
             f"Tool '{tool.name}' approved and saved as allow rule "
             f"({keys[choice].rule_string}) for call: {call_string}"
         )
-        console.print(
-            f"[dim green]✓ approved[/dim green] [dim]{display_call}[/dim] "
-            f"[dim yellow](allow rule: {escape(keys[choice].rule_string)})"
-            "[/dim yellow]"
+        _print_verdict(
+            "✓ approved",
+            "dim green",
+            requester,
+            saved_rule=keys[choice].rule_string,
         )
         return ToolApprovalResult(approved=True)
 
@@ -250,3 +248,19 @@ class ToolApprovalCliHelper:
                 logger.warning(f"Could not persist approval rule to workspace: {exc}")
         else:
             self._rules_engine.add_session_rule(rule)
+
+
+def _print_verdict(
+    verdict: str,
+    style: str,
+    requester: Optional[str],
+    *,
+    saved_rule: Optional[str] = None,
+) -> None:
+    """Print the one-line answer under the call line the output sink printed."""
+    line = Text("  " + verdict, style=style)
+    if requester is not None:
+        line.append(f" · {requester}", style="dim")
+    if saved_rule is not None:
+        line.append(f" · allow rule: {saved_rule}", style="dim yellow")
+    console.print(line)

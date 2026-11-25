@@ -46,8 +46,6 @@ listeners and process ownership, one for basic host facts, and one for
 hardening-tool presence/status. All checks will be read-only and limited to the
 local host.
 
-→ Executing 1 tool(s): delegate
-
 delegate  3 tasks
   Spawned 3 agent(s) (detached). They run in the background while you keep working.
   - loopback-listeners (a1, recon): ... read-only enumeration of listening TCP sockets ...
@@ -58,8 +56,6 @@ delegate  3 tasks
 
 The three read-only agents are running independently. I'll now wait for all
 reports, then consolidate the loopback sockets, host facts, and hardening status.
-
-→ Executing 1 tool(s): agent_wait
 
 agent_wait  ids=["a1","a2","a3"] timeout_s=120
 

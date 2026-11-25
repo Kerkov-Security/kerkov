@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import io
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -754,7 +755,7 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            console.file.getvalue(), "→ Executing: write → empty.txt (txt, 0 lines)\n"
+            console.file.getvalue(), "→ write → empty.txt (txt, 0 lines)\n"
         )
 
     def test_write_start_keeps_crlf_bytes_visible(self):
@@ -812,6 +813,84 @@ class ConsoleSinkMarkupTest(unittest.TestCase):
         result = ToolResult(success=False, output="", error="bad tag [/bold]")
         ConsoleSink(console).tool_failed("exec", result)
         self.assertIn("bad tag [/bold]", console.file.getvalue())
+
+
+class ConsoleSinkToolDisplayTest(unittest.TestCase):
+    """Calls and results print as bounded summaries, not raw dumps."""
+
+    def _create_console(self, width: int = 80, color: bool = False) -> Console:
+        return Console(
+            file=io.StringIO(),
+            force_terminal=True,
+            width=width,
+            height=24,
+            color_system="standard" if color else None,
+            legacy_windows=False,
+            _environ={"TERM": "xterm-256color"},
+        )
+
+    def test_tool_start_prints_one_summary_line(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_start("exec", {"command": "ls -la"})
+        self.assertEqual(console.file.getvalue(), "→ exec(command='ls -la')\n")
+
+    def test_long_calls_stay_on_one_line(self):
+        console = self._create_console(width=60)
+        params = {
+            "run_id": "ana-20261125T002055Z-1f488fca",
+            "text": "evidence " * 100,
+            "citations": [f"La/a;->m +{n:04x}" for n in range(7)],
+        }
+        ConsoleSink(console).tool_start("mcp__reandroid__add_note", params)
+
+        (line,) = console.file.getvalue().splitlines()
+        self.assertLessEqual(len(line), 60)
+        self.assertTrue(line.startswith("→ mcp__reandroid__add_note(run_id="))
+
+    def test_success_prints_size_and_a_bounded_preview(self):
+        console = self._create_console()
+        output = "\n".join(f"row {n}" for n in range(50))
+        ConsoleSink(console).tool_succeeded(
+            "exec", ToolResult(success=True, output=output)
+        )
+
+        self.assertEqual(
+            console.file.getvalue().splitlines(),
+            [
+                f"  ✓ done · {len(output)} B",
+                "    row 0",
+                "    row 1",
+                "    row 2",
+                "    … +47 more lines",
+            ],
+        )
+
+    def test_success_without_output_prints_only_the_status(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_succeeded("exec", ToolResult(success=True, output=""))
+        self.assertEqual(console.file.getvalue(), "  ✓ done\n")
+
+    def test_failure_prints_the_error_under_the_status(self):
+        console = self._create_console()
+        ConsoleSink(console).tool_failed(
+            "exec", ToolResult(success=False, output="", error="connection refused")
+        )
+        self.assertEqual(
+            console.file.getvalue().splitlines(),
+            ["  ✗ failed", "    connection refused"],
+        )
+
+    def test_result_text_is_not_syntax_highlighted(self):
+        console = self._create_console(color=True)
+        ConsoleSink(console).tool_succeeded(
+            "exec",
+            ToolResult(success=True, output='Intent.getData() at +0007 "url" 10.0.0.1'),
+        )
+        preview = console.file.getvalue().splitlines()[1]
+        # Rich's auto-highlighter would colour the call, number, string and IP.
+        self.assertEqual(
+            set(re.findall(r"\x1b\[[0-9;]*m", preview)), {"\x1b[2m", "\x1b[0m"}
+        )
 
 
 class WritePreviewLexerTest(unittest.TestCase):
@@ -1806,7 +1885,7 @@ class KnowledgeBaseIngestionTest(unittest.TestCase):
         self.assertLess(len(content), 6500)
 
     def test_custom_limits_only_change_history_copy(self):
-        raw = "HEAD" + "x" * 500 + "CONSOLE_ONLY" + "x" * 6500 + "TAIL"
+        raw = "HEAD" + "x" * 500 + "\nCONSOLE_ONLY\n" + "x" * 6500 + "TAIL"
         original = ToolResult(success=True, output=raw)
         tool = _EchoTool()
         tool.execute = AsyncMock(return_value=original)
