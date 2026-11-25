@@ -86,6 +86,10 @@ The packaged defaults deny obviously destructive `exec` patterns (`rm -rf`,
 read-only `process` actions (`list`, `poll`, `log`), read-only `zap` actions,
 `skill_lookup`, `recall`, `ledger`, and agent report collection.
 
+Deny rules bind [delegated agents](../reference/tools/delegate.md) too, in every
+mode except `yolo`. An agent approves its other calls itself, without asking you:
+allow rules and unmatched calls make no difference to it.
+
 Some tools are **deliberately left unmatched** so they prompt in `normal` mode:
 `sbom_generate` and `vulnerability_scan` (they may pull images, update
 databases, and consume real resources) and `sast_scan` (host-local and

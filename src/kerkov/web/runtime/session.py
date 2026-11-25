@@ -9,6 +9,7 @@ from typing import Any, Optional, Sequence
 
 from pydantic import ValidationError
 
+from kerkov.agents.agent_approval import AgentDenyRules
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -216,6 +217,16 @@ class WebKerkovSession:
                 )
             )
         self._master_tools_snapshot = list(self.tools)
+        user_approvals_path = Path(self.config.user_approvals_path).expanduser()
+        project_approvals_source = default_approvals_source(
+            start_dir=Path(__file__).resolve()
+        )
+        rules_engine = ApprovalRulesEngine.from_files(
+            user_approvals_path, project_approvals_source
+        )
+        self._agent_deny_rules = AgentDenyRules(
+            rules_engine, self.approval_mode_manager
+        )
         self._configure_agents()
         # Connections belong to this WebSocket connection, not to an engagement.
         self.mcp: Optional[McpManager] = None
@@ -227,13 +238,6 @@ class WebKerkovSession:
                 on_warning=self._warn_mcp,
             )
 
-        user_approvals_path = Path(self.config.user_approvals_path).expanduser()
-        project_approvals_source = default_approvals_source(
-            start_dir=Path(__file__).resolve()
-        )
-        rules_engine = ApprovalRulesEngine.from_files(
-            user_approvals_path, project_approvals_source
-        )
         self.approvals = WebApprovalController(bus)
         self.approval_strategy = WebApprovalStrategy(
             bus=bus,
@@ -287,6 +291,7 @@ class WebKerkovSession:
                 knowledge_base_getter=lambda: self.knowledge_base,
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
+                deny_rules=self._agent_deny_rules,
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))

@@ -16,6 +16,7 @@ from kerkov.agents.agent_tool import SpawnAgentTool
 from kerkov.agents.agent_wait_tool import AgentWaitTool
 from kerkov.agents.models import AgentRunReport
 from kerkov.core.config_manager import ConfigManager
+from kerkov.core.session.approval_rules import parse_rules
 from kerkov.models.basic_models import Message
 from kerkov.tools.base_tool import ToolResult
 from kerkov.web.runtime.events import WebEventBus
@@ -82,6 +83,30 @@ def _updates(web: WebKerkovSession) -> list[dict]:
         for event in web.bus.drain_nowait()
         if event["type"] == "agent.updated"
     ]
+
+
+def _spawn_tool(web: WebKerkovSession) -> SpawnAgentTool:
+    return next(tool for tool in web.tools if isinstance(tool, SpawnAgentTool))
+
+
+@pytest.mark.asyncio
+async def test_agents_obey_the_consoles_own_deny_rules_across_a_reset(
+    tmp_path: Path,
+) -> None:
+    web = _session(tmp_path)
+    try:
+        web._configure_agents()  # what /clear and /mode rebuild
+        deny_rules = _spawn_tool(web)._deny_rules
+        assert deny_rules is not None
+        # The packaged denies reach agents; a rule the operator saves in the
+        # browser does too, because the engine is the console's own.
+        assert deny_rules.denies("exec", {"command": "sudo id"})
+        web.approval_strategy._rules_engine.add_session_rule(
+            parse_rules([{"deny": "http({'url': 'http://10.0.0.9*'})"}])[0]
+        )
+        assert deny_rules.denies("http", {"url": "http://10.0.0.9/"})
+    finally:
+        await web.aclose()
 
 
 @pytest.mark.asyncio

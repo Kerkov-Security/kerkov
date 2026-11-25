@@ -27,7 +27,11 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Type
 
 from pydantic import BaseModel, Field
 
-from kerkov.agents.agent_approval import AgentReviewGate, SupervisedAgentApproval
+from kerkov.agents.agent_approval import (
+    AgentDenyRules,
+    AgentReviewGate,
+    SupervisedAgentApproval,
+)
 from kerkov.agents.agent_manager import AgentManager
 from kerkov.agents.agent_registry import (
     AgentRegistry,
@@ -177,6 +181,7 @@ class SpawnAgentTool(BaseTool):
         max_response_tokens: Optional[int] = None,
         review_gate: Optional[AgentReviewGate] = None,
         routing_getter: Optional[RoutingGetter] = None,
+        deny_rules: Optional[AgentDenyRules] = None,
     ):
         super().__init__(
             name=SPAWN_TOOL_NAME,
@@ -202,6 +207,9 @@ class SpawnAgentTool(BaseTool):
         # whitelist auto-approval agents run with by default.
         self._review_gate = review_gate
         self._routing_getter = routing_getter
+        # The operator's deny rules bind agents as they bind the master; the
+        # whitelist only stands in for the prompt on calls nothing forbids.
+        self._deny_rules = deny_rules
 
     def get_params_class(self) -> Type[ToolParams]:
         return SpawnAgentParams
@@ -476,6 +484,7 @@ class SpawnAgentTool(BaseTool):
                 max_response_tokens=self._max_response_tokens,
                 review_gate=self._review_gate,
                 routing_getter=lambda: routing_policy,
+                deny_rules=self._deny_rules,
             )
             agent_tools.append(nested_spawn)
 
@@ -508,7 +517,9 @@ class SpawnAgentTool(BaseTool):
             max_response_tokens=self._max_response_tokens,
             session=session,
             run_workspace=workspace,
-            approval=SupervisedAgentApproval(session, self._review_gate),
+            approval=SupervisedAgentApproval(
+                session, self._review_gate, self._deny_rules
+            ),
         )
 
     @staticmethod

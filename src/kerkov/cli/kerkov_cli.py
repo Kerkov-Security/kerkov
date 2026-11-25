@@ -16,6 +16,7 @@ from rich.markdown import Markdown
 from rich.markup import escape
 from rich.panel import Panel
 
+from kerkov.agents.agent_approval import AgentDenyRules
 from kerkov.agents.agent_session import AgentSession
 from kerkov.agents.agent_supervisor import AgentSupervisor
 from kerkov.agents.agent_tool import SpawnAgentTool
@@ -222,6 +223,7 @@ class KerkovCLI(ProviderSetupExtension):
                 temperature=self.config.agent_temperature,
                 max_response_tokens=self.config.max_response_tokens,
                 review_gate=self.agent_review,
+                deny_rules=AgentDenyRules(rules_engine, self.approval_mode_manager),
             )
         )
         self.tools.append(AgentWaitTool(self.agent_supervisor))

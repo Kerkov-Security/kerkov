@@ -206,9 +206,13 @@ tool-execution loop with operator approval.
   usable tools.
 - Nested delegation is an exception to the whitelist: `_build_runner()` adds
   `delegate` when depth permits regardless of the profile's allowlist, and
-  supplies the master's tool pool. Agents use `WhitelistAutoApproval`, so a
+  supplies the master's tool pool. Agents use `SupervisedAgentApproval`, so a
   restricted parent can spawn a more capable child without another approval.
   **Profile allowlists are not permission limits across descendants.**
+- Agents honour the operator's **deny rules** (`AgentDenyRules`: the front
+  end's live rules engine and approval mode, skipped only in `yolo`) before
+  whitelist auto-approval; allow rules and unmatched calls do not affect them.
+  Both front ends must pass `deny_rules=` to the master `SpawnAgentTool`.
 - Agents get their own `TokenTracker` + `ContextCompactor` targeting their own
   window; otherwise a long run hits a provider context-limit error, which the
   master sees as `stuck` rather than partial findings. Agent spend is **not**

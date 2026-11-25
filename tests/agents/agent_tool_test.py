@@ -109,6 +109,7 @@ def _make_tool(
     max_concurrent: int = 5,
     supervisor: Optional[AgentSupervisor] = None,
     review_gate=None,
+    deny_rules=None,
 ) -> Tuple[SpawnAgentTool, AgentSupervisor]:
     if isinstance(provider, MagicMock):
         # Match the real provider contract while sharing mocked completions so
@@ -138,6 +139,7 @@ def _make_tool(
         master_engagement_store=master_engagement_store,
         knowledge_base_getter=knowledge_base_getter,
         review_gate=review_gate,
+        deny_rules=deny_rules,
     )
     return tool, supervisor
 
@@ -523,6 +525,23 @@ class ReviewGateWiringTest(unittest.TestCase):
         nested = [t for t in runner.tools if t.name == SPAWN_TOOL_NAME][0]
 
         self.assertIs(nested._review_gate, gate)
+
+    def test_the_runner_strategy_carries_the_deny_rules(self):
+        deny_rules = MagicMock()
+        tool, _ = _make_tool(provider=MagicMock(), deny_rules=deny_rules)
+
+        runner = self._build_runner(tool)
+
+        self.assertIs(runner.approval._deny_rules, deny_rules)
+
+    def test_a_nested_agent_is_bound_by_the_deny_rules_too(self):
+        deny_rules = MagicMock()
+        tool, _ = _make_tool(provider=MagicMock(), deny_rules=deny_rules)
+
+        runner = self._build_runner(tool)
+        nested = [t for t in runner.tools if t.name == SPAWN_TOOL_NAME][0]
+
+        self.assertIs(nested._deny_rules, deny_rules)
 
 
 class NestedDelegationTest(unittest.TestCase):
