@@ -43,7 +43,8 @@ class AgentProfile(BaseModel):
     """The reusable definition of an agent.
 
     `allowed_tools` is the MAXIMUM tool whitelist for any spawn of this
-    profile. A spawn call may narrow the set (request a subset) but may
+    profile, and for every agent beneath it: a nested delegate draws from its
+    parent's tools. A spawn call may narrow the set (request a subset) but may
     never widen it — see `effective_tools()`.
 
     Sources are tracked so the manager can warn on duplicate names and so

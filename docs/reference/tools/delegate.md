@@ -72,13 +72,14 @@ running. The packaged `rm -rf`, `sudo`, `mkfs` and `shred` denies therefore
 block an agent's `exec` as they block yours. Allow rules and unmatched calls do
 not change what an agent does: it approves those itself.
 
-That autonomy reaches further than the batch you approved. Below
+That autonomy reaches further than the batch you approved, but no wider. Below
 [`AGENT_MAX_DEPTH`](../configuration.md#agents) every spawned agent receives a
 nested `delegate` of its own — outside its whitelist, since the runner appends it
-after `allowed_tools` is applied — and its nested tasks may name any profile,
-wider ones included. Approving a `delegate` therefore approves fan-out to the depth
-cap, not one level of it; see [the ceiling is per agent, not per
-subtree](../agent-profiles.md#the-ceiling-is-per-agent-not-per-subtree).
+after `allowed_tools` is applied. Its nested tasks may name any profile, but each
+child gets only the tools its parent holds. Approving a `delegate` therefore
+approves fan-out to the depth cap, bounded by the tools of the tasks you approved;
+see [the ceiling covers the whole
+subtree](../agent-profiles.md#the-ceiling-covers-the-whole-subtree).
 
 ### Returns
 

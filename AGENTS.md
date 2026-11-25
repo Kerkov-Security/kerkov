@@ -205,10 +205,12 @@ tool-execution loop with operator approval.
   validation, so no profile lists it), but `report` alone fails: it leaves no
   usable tools.
 - Nested delegation is an exception to the whitelist: `_build_runner()` adds
-  `delegate` when depth permits regardless of the profile's allowlist, and
-  supplies the master's tool pool. Agents use `SupervisedAgentApproval`, so a
-  restricted parent can spawn a more capable child without another approval.
-  **Profile allowlists are not permission limits across descendants.**
+  `delegate` when depth permits regardless of the profile's allowlist. Its pool
+  is the **parent agent's own tools**, never the master's, so a child gets its
+  profile intersected with what its parent holds and a profile allowlist caps
+  the whole subtree. Agents use `SupervisedAgentApproval`, so a wider pool
+  reaching a child would bypass approval; nested validation rejects requests
+  naming tools the parent lacks or profiles sharing none of its tools.
 - Agents honour the operator's **deny rules** (`AgentDenyRules`: the front
   end's live rules engine and approval mode, skipped only in `yolo`) before
   whitelist auto-approval; allow rules and unmatched calls do not affect them.

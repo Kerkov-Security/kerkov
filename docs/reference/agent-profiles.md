@@ -66,7 +66,7 @@ after `report`.
 |---|---|---|---|
 | `name` | ✓ | — | Unique profile name. The `agent_type` passed to `delegate`. |
 | `description` | ✓ | — | One line shown to the master LLM in its profile index. This is what the master reads to decide when to use the profile, so make it discriminating. |
-| `allowed_tools` | ✓ | — | A list of tool names, or `mcp__<server>__*` for every tool of one [MCP server](#mcp-tools). The **maximum** whitelist for any spawn of this profile — for that agent's own calls; see [the scope of the ceiling](#the-ceiling-is-per-agent-not-per-subtree). |
+| `allowed_tools` | ✓ | — | A list of tool names, or `mcp__<server>__*` for every tool of one [MCP server](#mcp-tools). The **maximum** whitelist for any spawn of this profile, and for every agent beneath it; see [the scope of the ceiling](#the-ceiling-covers-the-whole-subtree). |
 | `max_iterations` | — | `30` | Per-agent loop cap. Also bounded by [`AGENT_MAX_ITERATIONS`](configuration.md#agents); the effective cap is the lower of the two. |
 | `system_prompt` | — | the body | The agent's system prompt. If omitted, the Markdown body after the frontmatter is used — which is the normal way to write it. |
 
@@ -108,29 +108,31 @@ even when the profile names them, with a warning in the log. A trusted server's
 tools a profile names run **without a prompt** at every spawn and depth,
 including spawns made through nested `delegate`.
 
-### The ceiling is per agent, not per subtree
+### The ceiling covers the whole subtree
 
-The whitelist bounds the tools *this* agent may call. It does not bound the agents it
-spawns.
+The whitelist bounds the tools an agent may call, and the tools of every agent
+beneath it.
 
 `delegate` is appended by the runner after `allowed_tools` has been applied, so it is
 outside the whitelist by construction — which is also why naming it in a `delegate`
 request *fails*: validation checks the request against the profile's list, and
 `delegate` is in no profile's list. (`report` is the one name excused there, since it
 is the tool an agent must call to finish.) Any agent below
-[`AGENT_MAX_DEPTH`](configuration.md#agents) has it, and a nested delegation resolves
-its own `agent_type` against the full profile index and draws from the same master
-tool pool. Nothing requires the child's profile to be a subset of the parent's: an
-`analysis` agent restricted to `read` can spawn an `exploit` child holding `write`,
-`exec`, and `zap`. Because an agent auto-approves any call inside its own whitelist,
-that child's `exec` never reaches an approval prompt — the operator approved the
-master's `delegate`, one level up.
+[`AGENT_MAX_DEPTH`](configuration.md#agents) has it. A nested delegation still
+resolves its `agent_type` against the full profile index, but it draws from the
+**parent agent's own tools**, not the master's pool. A child gets its profile's
+whitelist intersected with what its parent holds, and its children inherit that
+narrowed set in turn: an `analysis` agent restricted to `read` can spawn an `exploit`
+child, but that child gets `read` and nothing else.
 
-Treat `allowed_tools` as a capability list for one agent, then bound the tree
-separately:
+A nested request is rejected when its `allowed_tools` names a tool the parent does
+not hold, or when the child's profile shares no tools with the parent at all, so a
+sub-agent learns at once that it should do the work itself. The master's own
+`delegate` draws from the full tool pool as before.
 
-- `AGENT_MAX_DEPTH=1` withholds `delegate` from every agent, which makes the
-  approved whitelist the whole of what a delegation can reach.
+Two settings bound a tree further:
+
+- `AGENT_MAX_DEPTH=1` withholds `delegate` from every agent, so no agent fans out.
 - [`/agents review <name>`](../guides/agents.md#reviewing-an-agents-tool-calls) puts
   one agent's calls back through the operator's approval path, but only while you are
   attached to it.

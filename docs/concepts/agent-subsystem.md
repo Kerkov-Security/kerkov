@@ -61,8 +61,9 @@ the master's conversation, attributed to an agent the master never spawned.
 3. On approval, `SpawnAgentTool.run()` turns each task into an
    `AgentSpawnSpec` and hands the batch to `AgentSupervisor.spawn()`. The spec
    carries a `build_runner` closure, because resolving a profile into a tool
-   set (and reconstructing the nested `delegate` at the child's depth) is the
-   tool's job while lifecycle is the supervisor's.
+   set (and reconstructing the nested `delegate` at the child's depth, with
+   the agent's own tools as its pool so a child never outranks its parent) is
+   the tool's job while lifecycle is the supervisor's.
 4. `AgentSupervisor.spawn()`:
    - Checks depth + total caps via `AgentRegistry`, then the live
      `AGENT_MAX_CONCURRENT` gate. All raise `BudgetExceeded`; the concurrency

@@ -654,6 +654,100 @@ class NestedDelegationTest(unittest.TestCase):
             self.assertEqual(session.state, AgentState.CANCELLED)
 
 
+def _child_params(agent_type: str, allowed_tools=None) -> SpawnAgentParams:
+    task = {"agent_type": agent_type, "instruction": "child", "success_criteria": ""}
+    if allowed_tools is not None:
+        task["allowed_tools"] = allowed_tools
+    return SpawnAgentParams(tasks=[task])
+
+
+class NestedToolInheritanceTest(unittest.TestCase):
+    """A child is bounded by its parent: a whitelist caps the whole subtree."""
+
+    POOL = ["read", "write", "http", "exec", "zap", "recall"]
+
+    def _nested_tool(
+        self,
+        parent: SpawnAgentTool,
+        profile: str,
+        *,
+        allowed_tools=None,
+        depth: int = 1,
+    ) -> SpawnAgentTool:
+        session = AgentSession(id="a0", agent_run_id="run", profile=profile, task="t")
+        runner = parent._build_runner(
+            AgentTaskSpec(
+                agent_type=profile, instruction="parent", allowed_tools=allowed_tools
+            ),
+            target_depth=depth,
+            provider=MagicMock(),
+            session=session,
+            workspace=None,
+        )
+        return next(t for t in runner.tools if t.name == SPAWN_TOOL_NAME)
+
+    def _master(self, pool=None) -> SpawnAgentTool:
+        names = self.POOL if pool is None else pool
+        tool, _ = _make_tool(
+            provider=MagicMock(),
+            master_tools=[_NoopTool(n) for n in names],
+            registry=AgentRegistry(max_depth=3, max_total=10),
+        )
+        return tool
+
+    def test_the_nested_pool_is_the_parents_own_tools(self):
+        nested = self._nested_tool(self._master(), "recon")
+
+        self.assertEqual(
+            sorted(t.name for t in nested._master_tools),
+            ["exec", "http", "read", "recall"],
+        )
+
+    def test_a_wider_child_profile_gets_only_what_the_parent_holds(self):
+        """An `exploit` child of a `recon` agent gets neither `write` nor `zap`."""
+        nested = self._nested_tool(self._master(), "recon")
+        grandchild = self._nested_tool(nested, "exploit", depth=2)
+
+        self.assertIsNone(nested.validate_params(_child_params("exploit")))
+        self.assertEqual(
+            sorted(t.name for t in grandchild._master_tools),
+            ["exec", "http", "read", "recall"],
+        )
+
+    def test_a_narrowed_parent_hands_down_its_narrowed_set(self):
+        nested = self._nested_tool(self._master(), "general", allowed_tools=["read"])
+
+        self.assertEqual([t.name for t in nested._master_tools], ["read"])
+
+    def test_a_child_cannot_be_granted_a_tool_the_parent_lacks(self):
+        nested = self._nested_tool(self._master(), "recon")
+
+        error = nested.validate_params(_child_params("exploit", ["read", "write"]))
+
+        self.assertIn("Task 0", error)
+        self.assertIn("you do not hold: write", error)
+
+    def test_report_may_still_be_named_for_a_nested_child(self):
+        nested = self._nested_tool(self._master(), "recon")
+
+        self.assertIsNone(
+            nested.validate_params(_child_params("exploit", ["read", REPORT_TOOL_NAME]))
+        )
+
+    def test_a_child_profile_sharing_no_tools_is_rejected(self):
+        nested = self._nested_tool(self._master(["exec", "write"]), "analysis")
+
+        error = nested.validate_params(_child_params("exploit"))
+
+        self.assertIn("shares no tools with yours", error)
+
+    def test_the_master_level_is_unchanged(self):
+        """The master's pool is the operator's own; no inheritance rule applies."""
+        master = self._master(["exec", "write"])
+
+        self.assertIsNone(master.validate_params(_child_params("analysis")))
+
+
 class _OutputTool(BaseTool):
     """Tool with distinctive output, so ingested artifacts are identifiable."""
 
