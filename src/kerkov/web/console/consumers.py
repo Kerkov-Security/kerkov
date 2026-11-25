@@ -16,7 +16,11 @@ from kerkov.core.cancellable_task import EventInterrupt
 from kerkov.core.compliance.review import ReviewEvidence
 from kerkov.core.process.subprocess_support import ensure_subprocess_support
 from kerkov.web.runtime.agents import AGENT_REQUESTS
-from kerkov.web.runtime.compliance import list_runs, read_evidence, review_saved_run
+from kerkov.web.runtime.compliance import (
+    list_runs,
+    read_compliance_details,
+    read_evidence,
+)
 from kerkov.web.runtime.engagements import ENGAGEMENT_REQUESTS
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.htb import handle_htb_message
@@ -324,7 +328,12 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             await read_evidence(self.session, content)
             return
 
-        if event_type in ("compliance.control", "compliance.export"):
+        if event_type in (
+            "compliance.ansible.check",
+            "compliance.control",
+            "compliance.datastream.inspect",
+            "compliance.export",
+        ):
             request_id = content.get("request_id")
             if (
                 not isinstance(request_id, str)
@@ -347,7 +356,9 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
                 )
             else:
                 self._compliance_review_task = asyncio.create_task(
-                    review_saved_run(self.session, content, self._review_evidence)
+                    read_compliance_details(
+                        self.session, content, self._review_evidence
+                    )
                 )
             return
 

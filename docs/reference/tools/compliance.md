@@ -553,12 +553,21 @@ available. These explain the check; they are not observed target evidence.
 ## Assess with OpenSCAP
 
 In **Workflows → Compliance**, select **SCAP datastream**. Enter the path to a
-reviewed, self-contained SCAP source datastream on the controller, its SHA-256,
-the full XCCDF profile ID, and the exact target distribution and release as
-reported by Ansible. Select **Assess asset**. In chat, provide the same
-information and the target. The model passes it to `compliance_scan` as
-`profile` plus `openscap` settings. Use `oscap info <datastream>` on a system
-with OpenSCAP to list profile IDs in that content.
+reviewed, self-contained SCAP source datastream on the controller and select
+**Inspect datastream**. Relative paths resolve within the engagement workspace.
+Inspection reads the local file, displays its SHA-256, and lists XCCDF profiles
+from the default checklist used by the scanner. It can run with execution
+disabled. Changing the path clears the digest and profile selection. Scan
+preparation rechecks the selected digest and profile before requesting approval.
+
+Select a profile, enter the exact target distribution and release reported by
+Ansible, and select **Scan host**. The controller can check its own Ansible
+executable and the local SSH files. If Ansible is missing, install it and
+select **Recheck Ansible** to update readiness with the current profile intact.
+The approved scan checks target access,
+privileges, Python, platform and OpenSCAP. In chat, supply the same settings
+including the full XCCDF profile ID and digest for `compliance_scan`. Use
+`oscap info <datastream>` on a system with OpenSCAP to list profile IDs manually.
 
 OpenSCAP assessment needs Ansible on the controller and Python and `oscap` on
 the target. The approved scan stages the reviewed XML over SSH in a private

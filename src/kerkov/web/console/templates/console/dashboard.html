@@ -14,9 +14,9 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=10">
     <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=15" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=22" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -189,6 +189,7 @@
                 <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
                 <p id="compliance-settings-status" class="compliance-caption" role="status"></p>
                   <div class="compliance-actions compliance-main-actions">
+                    <button type="button" id="compliance-scap-recheck" class="inventory-button" hidden>Recheck Ansible</button>
                     <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
                     <button id="compliance-discover" type="button" class="inventory-button inventory-primary">Find assessment details</button>
                     <button type="button" class="inventory-button inventory-primary" data-compliance-action="assess">Scan host</button>
@@ -229,14 +230,24 @@
                   </details>
                   <details id="compliance-openscap" class="compliance-connection" hidden>
                     <summary>SCAP datastream settings</summary>
-                    <p class="compliance-caption">Use a reviewed source datastream on the Kerkov controller. Ansible stages it on the target and checks its SHA-256 before invoking the installed scanner.</p>
+                    <p class="compliance-caption">Inspect a reviewed source datastream on the Kerkov controller to load its default checklist's profiles and compute its SHA-256.</p>
                     <div class="compliance-fields">
-                      <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
-                      <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
-                      <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <div class="compliance-datastream-path">
+                        <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
+                        <button type="button" id="compliance-scap-inspect" class="inventory-button">Inspect datastream</button>
+                      </div>
+                      <label>Datastream SHA-256<input name="scap_sha256" readonly></label>
+                      <div class="compliance-scap-profile">
+                        <label for="compliance-scap-profile">XCCDF profile</label>
+                        <select id="compliance-scap-profile" name="scap_profile_id" aria-describedby="compliance-scap-profile-id"><option value="">Inspect a datastream first</option></select>
+                        <span id="compliance-scap-profile-id" class="compliance-caption" hidden></span>
+                      </div>
                       <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
                       <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
                     </div>
+                    <p id="compliance-scap-status" class="compliance-caption" role="status"></p>
+                    <p class="compliance-caption"><strong>Controller checks</strong> cover the datastream and Ansible. Scan preparation checks the local SSH files and rechecks the digest before approval.</p>
+                    <p class="compliance-caption"><strong>The approved scan</strong> checks SSH access, the Linux distribution and version, Python, privileges and OpenSCAP on the target. Installing a missing scanner requires separate approval.</p>
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>

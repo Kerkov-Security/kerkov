@@ -22,6 +22,9 @@ class HostCompliance {
     this.savedRun = null;
     this.defaultFilterRunId = null;
     this.assessmentOf = null;
+    this.scapRequest = null;
+    this.ansibleAvailable = null;
+    this.ansibleCheckError = "";
     this.historyContext = null;
     this.controlRequest = null;
     this.exportRequest = null;
@@ -53,7 +56,7 @@ class HostCompliance {
     this.el("compliance-complete-settings").addEventListener("click", () => {
       const missing = this.assessmentFields().find(name => !this.fieldComplete(name));
       if (!missing) return;
-      const field = this.field(missing);
+      const field = missing === "scap_sha256" ? this.el("compliance-scap-inspect") : this.field(missing);
       this.openSettings(field);
       field.focus();
     });
@@ -97,12 +100,29 @@ class HostCompliance {
       this.setState();
     });
     this.form.addEventListener("submit", (event) => { event.preventDefault(); this.start("apply"); });
+    this.el("compliance-scap-inspect").addEventListener("click", () => this.inspectDatastream());
+    this.el("compliance-scap-recheck").addEventListener("click", () => {
+      if (!this.inventory.canWrite() || !this.ansibleBlocked() || this.scapRequest) return;
+      this.ansibleCheckError = "";
+      this.requestScap("compliance.ansible.check");
+    });
+    this.field("scap_datastream").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      this.inspectDatastream();
+    });
+    this.field("scap_profile_id").addEventListener("change", () => this.updateScapProfileId());
     for (const id of ["compliance-project-url", "compliance-profile-search"]) {
       this.el(id).addEventListener("keydown", (event) => {
         if (event.key === "Enter") event.preventDefault();
       });
     }
     this.form.addEventListener("input", (event) => {
+      if (event.target.name === "scap_datastream") {
+        this.resetScap();
+        this.setState();
+        return;
+      }
       if (["user", "port", "private_key_file", "known_hosts_file", "sudo"].includes(event.target.name)) {
         this.accessDirty = true;
         this.accessSource = null;
@@ -173,6 +193,8 @@ class HostCompliance {
     this.el("compliance-history").replaceChildren();
     this.resetAccess();
     this.form.reset();
+    this.ansibleAvailable = null;
+    this.resetScap();
     this.selectedId = null;
     this.selectedIdentity = null;
     this.run = null;
@@ -200,6 +222,7 @@ class HostCompliance {
       this.reviewedPreview = null;
       this.resetAccess();
       this.form.reset();
+      this.resetScap();
       this.el("compliance-connection").open = false;
       this.text("compliance-status", "");
     }
@@ -224,6 +247,7 @@ class HostCompliance {
       this.selectedId = null;
       this.selectedIdentity = null;
       this.form.reset();
+      this.resetScap();
       this.renderAssets();
       this.renderSelection();
     }
@@ -321,7 +345,8 @@ class HostCompliance {
   updateSettingsStatus() {
     const missing = this.assessmentFields().filter(name => !this.fieldComplete(name));
     const remotePending = this.baselineId === "remote" && !this.projects?.ready;
-    const ready = !!this.host() && !remotePending && !missing.length;
+    const blocked = this.ansibleBlocked();
+    const ready = !!this.host() && !remotePending && !missing.length && !blocked;
     this.el("compliance-settings-status").dataset.ready = String(ready);
     const missingAccess = ["user", "port", "private_key_file", "known_hosts_file"].some(name => !this.fieldComplete(name));
     const ambiguous = this.accessCandidates.length > 1;
@@ -330,6 +355,8 @@ class HostCompliance {
     this.form.querySelector('[data-compliance-action="assess"]').hidden = discover;
     this.text("compliance-settings-status", !this.host() ? "Select a host to get started."
       : this.workflowId && !this.run && !this.projects?.preparation ? "Finding recorded access in this engagement…"
+      : blocked ? (this.scapRequest?.type === "compliance.ansible.check" ? "Checking Ansible on the controller…"
+        : this.ansibleCheckError || "Ansible is missing on the controller. Run kerkov setup ansible, then recheck.")
       : remotePending ? "Prepare the selected profile in Customize to continue."
       : ambiguous && !this.accessDirty ? "Choose which recorded connection to use below."
       : missingAccess && !this.accessDirty ? "Let Kerkov find the connection details from this engagement."
@@ -342,6 +369,96 @@ class HostCompliance {
 
   isOpenScap() {
     return this.baselineId === "openscap";
+  }
+
+  ansibleBlocked() {
+    return this.isOpenScap() && this.ansibleAvailable === false;
+  }
+
+  setScapProfiles(profiles, selected = "") {
+    const select = this.field("scap_profile_id");
+    select.replaceChildren(new Option(profiles.length ? "Select a profile" : "Inspect a datastream first", ""));
+    for (const { id, title } of profiles) select.add(new Option(title || id, id));
+    select.value = profiles.some(profile => profile.id === selected) ? selected : "";
+    this.updateScapProfileId();
+  }
+
+  updateScapProfileId() {
+    const id = this.field("scap_profile_id").value;
+    const label = this.el("compliance-scap-profile-id");
+    label.textContent = id;
+    label.hidden = !id;
+  }
+
+  resetScap() {
+    clearTimeout(this.scapRequest?.timer);
+    this.scapRequest = null;
+    this.ansibleCheckError = "";
+    this.field("scap_sha256").value = "";
+    this.setScapProfiles([]);
+    this.text("compliance-scap-status", "");
+  }
+
+  inspectDatastream() {
+    if (!this.inventory.canWrite() || !this.host() || !this.isOpenScap() || this.scapRequest ||
+        !this.fieldComplete("scap_datastream")) return;
+    const path = this.field("scap_datastream").value.trim();
+    const selected = this.field("scap_profile_id").value;
+    this.resetScap();
+    this.requestScap("compliance.datastream.inspect", { path }, selected);
+  }
+
+  requestScap(type, fields = {}, selected = "") {
+    const id = this.inventory.requestId();
+    const rechecking = type === "compliance.ansible.check";
+    const failed = (detail) => {
+      if (rechecking) this.ansibleCheckError = detail;
+      else this.text("compliance-scap-status", detail);
+    };
+    if (!this.inventory.send({ type, context_id: this.inventory.contextId, request_id: id, ...fields })) {
+      failed("Unable to reach the controller. Check the connection and retry.");
+    } else {
+      if (!rechecking) this.text("compliance-scap-status", "Inspecting datastream on the controller…");
+      this.scapRequest = { id, type, path: fields.path, selected, timer: window.setTimeout(() => {
+        this.scapRequest = null;
+        failed("The controller did not respond. Try again.");
+        this.setState();
+      }, 15000) };
+    }
+    this.setState();
+  }
+
+  receiveScapResult(type, payload) {
+    const request = this.scapRequest;
+    if (payload.context_id !== this.inventory.contextId || request?.type !== type || payload.request_id !== request.id) return;
+    if (type === "compliance.ansible.check") {
+      clearTimeout(request.timer);
+      this.scapRequest = null;
+      this.ansibleCheckError = payload.detail || "";
+      if (!payload.detail) {
+        this.ansibleAvailable = payload.ansible_available;
+        if (this.ansibleAvailable) {
+          this.text("compliance-scap-status", "Ansible is available on the controller.");
+          this.text("compliance-status", "");
+        }
+      }
+      this.setState();
+      return;
+    }
+    if (request.path !== this.field("scap_datastream").value.trim()) return;
+    this.resetScap();
+    if (payload.detail) {
+      this.text("compliance-scap-status", payload.detail);
+    } else {
+      const { profiles, sha256, ansible_available: ansibleAvailable } = payload;
+      this.ansibleAvailable = ansibleAvailable;
+      this.field("scap_sha256").value = sha256;
+      this.setScapProfiles(profiles, request.selected || (profiles.length === 1 ? profiles[0].id : ""));
+      this.text("compliance-scap-status", ansibleAvailable
+        ? "Datastream inspected. Ansible is available on the controller."
+        : "Datastream inspected. Install Ansible on the controller before scanning. Run kerkov setup ansible for guidance.");
+    }
+    this.setState();
   }
 
   renderSelection() {
@@ -359,7 +476,7 @@ class HostCompliance {
     const bootstrap = this.field("bootstrap_python").closest("label");
     bootstrap.hidden = remote || openscap;
     bootstrap.nextElementSibling.hidden = remote || openscap;
-    this.text("compliance-action-help", openscap ? "The target needs Python and OpenSCAP. If the scanner is missing, request a separate installation in chat before assessing." : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
+    this.text("compliance-action-help", openscap ? "" : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
     for (const field of this.el("compliance-custom").querySelectorAll(".compliance-custom-fix")) field.hidden = remote;
     if (remote) this.field("profile").value = this.projects.ready?.profile || "";
     const profileLabel = openscap ? "SCAP datastream" : (this.projects.ready?.name || (remote ? "Community profile" : "Existing InSpec project"));
@@ -443,6 +560,14 @@ class HostCompliance {
     if (assessmentOnly) this.field("bootstrap_python").disabled = true;
     if (this.baselineId === "remote") {
       this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.ready || !!this.projects.preparation;
+    }
+    this.el("compliance-scap-inspect").disabled = !writable || !this.host() || !!this.scapRequest || !this.fieldComplete("scap_datastream");
+    this.field("scap_profile_id").disabled ||= !this.fieldComplete("scap_sha256");
+    const recheck = this.el("compliance-scap-recheck");
+    recheck.hidden = !this.host() || !this.ansibleBlocked();
+    recheck.disabled = !writable || !!this.scapRequest;
+    if (this.isOpenScap() && (this.scapRequest || this.ansibleBlocked())) {
+      this.form.querySelector('[data-compliance-action="assess"]').disabled = true;
     }
     if (this.readiness.blockers.length) {
       for (const button of this.form.querySelectorAll('[data-compliance-action], button[type="submit"]')) button.disabled = true;
@@ -584,6 +709,19 @@ class HostCompliance {
     const baseline = this.baseline();
     const openscap = this.isOpenScap();
     if (openscap && action !== "assess") return;
+    if (this.ansibleBlocked()) {
+      const recheck = this.el("compliance-scap-recheck");
+      this.openSettings(recheck);
+      recheck.focus();
+      return;
+    }
+    if (openscap && !this.fieldComplete("scap_sha256")) {
+      const field = this.fieldComplete("scap_datastream") ? this.el("compliance-scap-inspect") : this.field("scap_datastream");
+      this.openSettings(field);
+      this.text("compliance-status", "Inspect the datastream before scanning.");
+      field.focus();
+      return;
+    }
     if (this.baselineId === "remote" && (action !== "assess" || !this.projects.ready || this.projects.preparation)) {
       this.text("compliance-status", "Download and prepare this assessment profile first. Community profiles do not include automatic fixes.");
       return;
@@ -592,7 +730,7 @@ class HostCompliance {
     const customFields = ["profile", "inputs_file", "automation_profile", "playbook", "host_alias", "vars_file"];
     if (!openscap && !baseline && action !== "assess") required.push("automation_profile", "playbook", "host_alias");
     const values = {};
-    for (const input of this.form.querySelectorAll("input")) {
+    for (const input of this.form.querySelectorAll("input, select")) {
       if (input.type === "checkbox" || !input.name) continue;
       input.required = required.includes(input.name);
       if (!openscap && input.name.startsWith("scap_")) continue;
@@ -684,6 +822,10 @@ class HostCompliance {
   handleEvent(type, payload) {
     const projectPreparation = !!this.projects.preparation && payload.message_id === this.projects.preparation.id;
     this.projects.handle(type, payload);
+    if (type === "compliance.datastream.inspect" || type === "compliance.ansible.check") {
+      this.receiveScapResult(type, payload);
+      return;
+    }
     if (type === "compliance.control" || type === "compliance.export") {
       if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
       if (type === "compliance.control" && payload.request_id === this.controlRequest) {
@@ -1005,9 +1147,15 @@ class HostCompliance {
       if (field.type === "checkbox") field.checked = value;
       else field.value = value || "";
     }
+    this.resetScap();
     if (request.scan.openscap) {
+      const { profile_id: id, sha256, distribution, version } = request.scan.openscap;
       this.field("scap_datastream").value = request.scan.profile;
-      for (const [key, value] of Object.entries(request.scan.openscap)) this.field(`scap_${key}`).value = value;
+      this.field("scap_sha256").value = sha256;
+      this.setScapProfiles([{ id }], id);
+      this.field("scap_distribution").value = distribution;
+      this.field("scap_version").value = version;
+      this.text("compliance-scap-status", "Using the saved digest and profile. Inspect again to load the current profiles.");
     }
     this.field("bootstrap_python").checked = request.bootstrap_python ?? false;
     if (request.remediation) {
@@ -1019,6 +1167,7 @@ class HostCompliance {
     this.el("compliance-setup").open = !assess;
     this.el("compliance-advanced").open = !assess;
     this.connectionSummary();
+    this.setState();
     if (assess) {
       this.assessmentOf = record.id;
       this.start("assess");
@@ -1026,6 +1175,14 @@ class HostCompliance {
   }
 
   disconnected() {
+    this.ansibleAvailable = null;
+    if (this.scapRequest?.type === "compliance.ansible.check") {
+      clearTimeout(this.scapRequest.timer);
+      this.scapRequest = null;
+    } else if (this.scapRequest) {
+      this.resetScap();
+      this.text("compliance-scap-status", "Connection lost. Reconnect to inspect the datastream.");
+    }
     for (const request of this.projects.requests.values()) clearTimeout(request.timer);
     this.projects.requests.clear();
     this.projects.preparation = null;

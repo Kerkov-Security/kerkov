@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from kerkov.core.automation.ansible import ansible_binary
+from kerkov.core.automation.profiles import local_file
+from kerkov.core.compliance.openscap import inspect_datastream
 from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.workflows.compliance import (
@@ -122,11 +125,12 @@ async def read_evidence(session: WebKerkovSession, content: dict[str, Any]) -> N
         )
 
 
-async def review_saved_run(
+async def read_compliance_details(
     session: WebKerkovSession,
     content: dict[str, Any],
     evidence: ReviewEvidence | None = None,
 ) -> None:
+    """Serve local inspection and review requests for the active engagement."""
     context_id = session.inventory.context_id
     workspace = session.workspace_path
     if content.get("context_id") != context_id or workspace is None:
@@ -137,6 +141,22 @@ async def review_saved_run(
     event_type = content["type"]
 
     def read() -> dict[str, Any]:
+        if event_type == "compliance.ansible.check":
+            return {"ansible_available": ansible_binary() is not None}
+        if event_type == "compliance.datastream.inspect":
+            path = content.get("path")
+            if (
+                not isinstance(path, str)
+                or not 1 <= len(path) <= 4096
+                or any(ord(char) < 32 or ord(char) == 127 for char in path)
+            ):
+                raise ValueError("Enter a local datastream path")
+            sha256, profiles = inspect_datastream(local_file(path, workspace))
+            return {
+                "sha256": sha256,
+                "profiles": profiles,
+                "ansible_available": ansible_binary() is not None,
+            }
         record = WorkflowStore(workspace).load(content.get("run_id", ""))
         if event_type == "compliance.export":
             return export_report(
@@ -156,8 +176,12 @@ async def review_saved_run(
 
     try:
         result = await asyncio.to_thread(read)
-    except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
-        result = {"detail": f"Could not load the saved assessment: {exc}"}
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        subject = {
+            "compliance.ansible.check": "check Ansible on the controller",
+            "compliance.datastream.inspect": "inspect the datastream",
+        }.get(event_type, "load the saved assessment")
+        result = {"detail": f"Could not {subject}: {exc}"}
     if (
         not session._closed
         and context_id == session.inventory.context_id
