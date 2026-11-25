@@ -187,11 +187,12 @@ class KerkovCLI(ProviderSetupExtension):
                     engagement_id_getter=lambda: self.engagement_store.engagement_id,
                 )
             )
-        # Shared master tool pool — agents draw their tool set from here. The
-        # spawn tool itself is appended afterward and intentionally not in
-        # the pool; agents receive a SpawnAgentTool reconstructed at their
-        # depth (see `agent_tool.py`). Keep this list so reloads also update
-        # the tools available to future agents, including nested delegates.
+        # Shared master tool pool — top-level agents draw their tool set from
+        # here, and nested agents from their parent's share of it. The spawn
+        # tool itself is appended afterward and intentionally not in the pool;
+        # agents receive a SpawnAgentTool reconstructed at their depth (see
+        # `agent_tool.py`). Keep this list so reloads also update the tools
+        # available to future agents.
         self._master_tools = list(self.tools)
         self.agent_focus = AgentFocusManager()
         self.agent_review = AttachedAgentReview(

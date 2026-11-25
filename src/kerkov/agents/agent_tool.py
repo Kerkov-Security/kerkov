@@ -41,7 +41,7 @@ from kerkov.agents.agent_registry import (
 from kerkov.agents.agent_runner import AgentRunner
 from kerkov.agents.agent_session import AgentSession, truncate_task
 from kerkov.agents.agent_supervisor import AgentSpawnSpec, AgentSupervisor
-from kerkov.agents.models import tool_grant_matches
+from kerkov.agents.models import AgentProfile, tool_grant_matches
 from kerkov.agents.report_format import build_report_result
 from kerkov.agents.report_tool import REPORT_TOOL_NAME
 from kerkov.core.approval_scope import ApprovalScope
@@ -87,8 +87,11 @@ _BLOCKING_DESCRIPTION = (
     "independent pieces that each justify a separate agent, and never as your "
     "first action. Delegating has a cost: you block until every child "
     "reports, and those children draw on the same concurrency pool as your "
-    "siblings, so a reflexive fan-out can stall the whole tree."
+    "siblings, so a reflexive fan-out can stall the whole tree. "
+    "Each child gets at most the tools you hold yourself."
 )
+
+_INHERITANCE_RULE = "A sub-agent's children get at most the tools it holds itself."
 
 
 def _pin_model(provider: BaseLLMProvider) -> BaseLLMProvider:
@@ -252,6 +255,10 @@ class SpawnAgentTool(BaseTool):
                         f"Task {i}: allowed_tools leaves profile "
                         f"'{task.agent_type}' with no usable tools."
                     )
+            if self._parent_depth > 0:
+                error = self._inheritance_error(task, profile)
+                if error:
+                    return f"Task {i}: {error}"
         return None
 
     async def run(self, toolParams: ToolParams) -> ToolResult:
@@ -443,12 +450,7 @@ class SpawnAgentTool(BaseTool):
         profile = self._agent_manager.get_profile(task.agent_type)
         assert profile is not None  # validate_params already checked
 
-        grants = profile.effective_tools(task.allowed_tools)
-        granted = [
-            t
-            for t in self._master_tools
-            if any(tool_grant_matches(entry, t.name) for entry in grants)
-        ]
+        granted = self._pool_tools(profile.effective_tools(task.allowed_tools))
         # Agents approve whitelisted calls without asking anyone, so a tool that
         # must prompt on every call (an untrusted MCP server's) never reaches one.
         agent_tools: List[BaseTool] = [t for t in granted if not t.prompts_every_call]
@@ -461,8 +463,8 @@ class SpawnAgentTool(BaseTool):
                 ", ".join(withheld),
             )
 
-        # Restricted small/medium tasks must not use delegation to obtain the
-        # master's wider tool pool. Large/manual tasks retain nested delegation.
+        # Restricted small/medium tasks stay leaf agents. Large/manual tasks
+        # retain nested delegation.
         restricted_task = routing_decision is not None and routing_decision.tier in {
             "small",
             "medium",
@@ -470,7 +472,11 @@ class SpawnAgentTool(BaseTool):
         if not restricted_task and not self._registry.depth_cap_reached(target_depth):
             nested_spawn = SpawnAgentTool(
                 agent_manager=self._agent_manager,
-                master_tools=self._master_tools,
+                # The agent's own tools, not the master's pool: a child is
+                # bounded by its parent, so a profile's whitelist is a ceiling
+                # for the whole subtree beneath it. Copied, because the
+                # nested delegate itself is appended to `agent_tools` next.
+                master_tools=list(agent_tools),
                 provider_getter=lambda: provider,
                 registry=self._registry,
                 supervisor=self._supervisor,
@@ -521,6 +527,41 @@ class SpawnAgentTool(BaseTool):
                 session, self._review_gate, self._deny_rules
             ),
         )
+
+    def _pool_tools(self, grants: List[str]) -> List[BaseTool]:
+        """The tools in this delegate's pool that any of `grants` names."""
+        return [
+            t
+            for t in self._master_tools
+            if any(tool_grant_matches(entry, t.name) for entry in grants)
+        ]
+
+    def _inheritance_error(self, task: AgentTaskSpec, profile: AgentProfile) -> str:
+        """Why a sub-agent cannot hand this task down, or "" if it can.
+
+        A nested pool is the parent agent's own tool set, so a child profile
+        that shares nothing with it, or a request naming a tool outside it,
+        would yield an agent that cannot do what it was asked.
+        """
+        if task.allowed_tools is not None:
+            held = [t.name for t in self._master_tools]
+            missing = sorted(
+                name
+                for name in set(task.allowed_tools) - {REPORT_TOOL_NAME}
+                if not any(tool_grant_matches(name, h) for h in held)
+            )
+            if missing:
+                return (
+                    "you cannot hand down tool(s) you do not hold: "
+                    f"{', '.join(missing)}. {_INHERITANCE_RULE}"
+                )
+        if not self._pool_tools(profile.effective_tools(task.allowed_tools)):
+            return (
+                f"profile '{task.agent_type}' shares no tools with yours. "
+                f"{_INHERITANCE_RULE} Pick a profile that overlaps, or do this "
+                "work yourself."
+            )
+        return ""
 
     @staticmethod
     def _detached_result(sessions: List[AgentSession]) -> ToolResult:
