@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ds:data-stream-collection xmlns:ds="http://scap.nist.gov/schema/scap/source/1.2"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2">
+  <ds:data-stream id="scap_example_datastream_default">
+    <ds:checklists>
+      <ds:component-ref id="scap_example_cref_default" xlink:href="#scap_example_comp_default"/>
+      <ds:component-ref id="scap_example_cref_other" xlink:href="#scap_example_comp_other"/>
+    </ds:checklists>
+  </ds:data-stream>
+  <ds:component id="scap_example_comp_other">
+    <xccdf:Benchmark id="xccdf_example_benchmark_other">
+      <xccdf:Profile id="xccdf_example_profile_other"/>
+    </xccdf:Benchmark>
+  </ds:component>
+  <ds:component id="scap_example_comp_default">
+    <xccdf:Benchmark id="xccdf_example_benchmark_default">
+      <xccdf:Profile id="xccdf_example_profile_template" abstract="true"/>
+      <xccdf:Profile id="xccdf_example_profile_server">
+        <xccdf:title>Server baseline</xccdf:title>
+      </xccdf:Profile>
+      <xccdf:Profile id="xccdf_example_profile_workstation">
+        <xccdf:title>Workstation baseline</xccdf:title>
+      </xccdf:Profile>
+    </xccdf:Benchmark>
+  </ds:component>
+</ds:data-stream-collection>

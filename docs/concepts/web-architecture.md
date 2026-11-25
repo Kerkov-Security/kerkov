@@ -194,10 +194,13 @@ refresh. The runtime executes one `compliance_profile` call through the shared
 approval strategy and tool executor. It emits activity through
 `compliance.event` and bypasses the model turn, transcript and knowledge base.
 
-Saved control reviews and report exports run one at a time per connection.
-They verify each evidence file against its saved SHA-256 and reuse parsed
-evidence for up to two reports. Approval responses and Stop remain available
-while evidence is processed. A response from a retired engagement is discarded.
+Local datastream inspection, saved control reviews and report exports share a
+single read slot per connection. Inspection computes the digest and reads the
+default checklist's profile metadata without SSH or a model turn. Control
+reviews and exports verify each evidence file against its saved SHA-256 and reuse
+parsed evidence for up to two reports. Approval responses and Stop remain
+available while reads are processed. A response from a retired engagement is
+discarded.
 
 On load, missing tool results receive synthesized outcomes that explicitly say
 execution is unknown. This repairs interrupted tool batches for provider replay

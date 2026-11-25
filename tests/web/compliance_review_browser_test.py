@@ -316,6 +316,11 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     expect(page.locator('[name="scap_datastream"]')).to_have_value(
         "/workspace/benchmark.xml"
     )
+    settings = record["request"]["scan"]["openscap"]
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value(settings["sha256"])
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(
+        settings["profile_id"]
+    )
     expect(page.get_by_role("button", name="Scan host", exact=True)).to_be_visible()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
     expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()

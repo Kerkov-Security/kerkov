@@ -412,10 +412,12 @@ the first missing field. Multiple recorded endpoints require an explicit choice.
 Available settings do not confirm access: the workflow checks the connection when
 it runs.
 
-For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
-path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
-on the target and offers assessment only. If the scanner is missing, request
-its installation separately in chat. See the
+For a reviewed SCAP benchmark, select **SCAP datastream**, enter its local path,
+and choose **Inspect datastream**. The controller computes the SHA-256, lists
+profiles from the default checklist, and checks whether Ansible is available.
+Select a profile and enter the target distribution and version. The approved
+assessment checks SSH access, target prerequisites and OpenSCAP. If the scanner
+is missing, request its installation separately in chat. See the
 [OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 After a saved assessment loads, setup collapses into a host/profile summary.

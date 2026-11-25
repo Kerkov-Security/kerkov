@@ -420,22 +420,118 @@ def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
     expect(page.locator("#compliance-custom")).to_be_hidden()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
     expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    expect(page.locator("#compliance-openscap")).to_contain_text(
+        "The approved scan checks SSH access"
+    )
+    path = "profiles/datastream.xml"
     settings = {
-        "datastream": "profiles/datastream.xml",
         "sha256": "a" * 64,
         "profile_id": "xccdf_example_profile_server",
         "distribution": "Ubuntu",
         "version": "24.04",
     }
-    for name, value in settings.items():
-        page.locator(f'#compliance-openscap [name="scap_{name}"]').fill(value)
+    page.get_by_label("Datastream path").fill(path)
+    page.get_by_role("button", name="Inspect datastream").click()
+    inspection = last_request(page, "compliance.datastream.inspect")
+    assert inspection["path"] == path
+    assert not sent(page, "compliance.run")
+    emit(
+        page,
+        "compliance.datastream.inspect",
+        {
+            "request_id": inspection["request_id"],
+            "context_id": inspection["context_id"],
+            "sha256": settings["sha256"],
+            "profiles": [
+                {"id": settings["profile_id"], "title": "Server baseline"},
+                {
+                    "id": "xccdf_example_profile_workstation",
+                    "title": "Workstation baseline",
+                },
+            ],
+            "ansible_available": True,
+        },
+    )
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value(settings["sha256"])
+    expect(page.locator("#compliance-scap-status")).to_contain_text(
+        "Ansible is available"
+    )
+    page.get_by_label("XCCDF profile", exact=True).select_option(
+        label="Server baseline"
+    )
+    expect(page.locator("#compliance-scap-profile-id")).to_have_text(
+        settings["profile_id"]
+    )
+    page.get_by_label("Target distribution", exact=True).fill(settings["distribution"])
+    page.get_by_label("Target distribution version").fill(settings["version"])
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["action"] == "assess"
     assert request["baseline_id"] is None
     assert request["remediation"] is None
-    assert request["scan"]["profile"] == settings.pop("datastream")
+    assert request["scan"]["profile"] == path
     assert request["scan"]["openscap"] == settings
+
+
+def test_scap_path_edits_discard_stale_responses_and_clear_the_digest(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    path = page.get_by_label("Datastream path")
+    inspect = page.get_by_role("button", name="Inspect datastream")
+    profile = page.get_by_label("XCCDF profile", exact=True)
+    digest = page.get_by_label("Datastream SHA-256")
+    path.fill("old.xml")
+    path.press("Enter")
+    old = last_request(page, "compliance.datastream.inspect")
+    path.fill("new.xml")
+    inspect.click()
+    new = last_request(page, "compliance.datastream.inspect")
+    assert new["request_id"] != old["request_id"]
+    result = {
+        "context_id": new["context_id"],
+        "sha256": "b" * 64,
+        "profiles": [{"id": "xccdf_example_profile_server", "title": "Server"}],
+        "ansible_available": False,
+    }
+    emit(page, new["type"], {**result, "request_id": old["request_id"]})
+    expect(digest).to_have_value("")
+    expect(profile).to_be_disabled()
+    emit(page, new["type"], {**result, "request_id": new["request_id"]})
+    expect(digest).to_have_value("b" * 64)
+    expect(profile).to_have_value("xccdf_example_profile_server")
+    expect(page.locator("#compliance-scap-status")).to_contain_text("Install Ansible")
+    path.fill("another.xml")
+    expect(digest).to_have_value("")
+    expect(profile).to_be_disabled()
+    page.locator('[data-compliance-action="assess"]').click()
+    expect(page.locator("#compliance-status")).to_contain_text("Inspect the datastream")
+    assert not sent(page, "compliance.run")
+
+
+def test_saved_scap_reassessment_reuses_the_pinned_profile(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    record["status"] = "attention"
+    record["request"].update(action="assess", baseline_id=None)
+    settings = {
+        "distribution": "Ubuntu",
+        "version": "22.04",
+        "profile_id": "xccdf_example_profile_server",
+        "sha256": "a" * 64,
+    }
+    record["request"]["scan"].update(
+        profile="/workspace/benchmark.xml", openscap=settings
+    )
+    emit(page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]})
+    page.locator("#compliance-reassess").click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["assessment_of"] == record["id"]
+    assert request["scan"]["openscap"] == settings
+    assert not sent(page, "compliance.datastream.inspect")
 
 
 @pytest.mark.parametrize("width", [390, 1440])
