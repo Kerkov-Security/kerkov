@@ -89,6 +89,9 @@ from a reassessment is **Unassessed** in the current result. Its previous outcom
 remains available in the control details.
 **Unresolved** includes every outcome other than passed. Impact bands are high
 (at least 0.7), medium (0.4 to below 0.7), low (below 0.4), or unknown.
+The table labels impact bands beside their numeric values and uses labeled
+outcome badges. Column headers stay visible while scrolling long result pages,
+and keyboard focus scrolls into view below them.
 The browser reads complete, hash-verified evidence in pages of 25, 50 or 100
 controls, independently of the model's 200-control summary. Changing a filter
 starts at page one. Missing or changed evidence shows an explicit error with a
