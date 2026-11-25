@@ -41,7 +41,7 @@ the master's conversation, attributed to an agent the master never spawned.
 | `src/kerkov/routing/` | Provider-independent task context, deterministic routing policy, and model-selection decision. |
 | `src/kerkov/agents/agent_wait_tool.py` | `agent_wait` tool — blocks until named (or all outstanding) agents report. |
 | `src/kerkov/agents/report_format.py` | The single report formatter shared by `agent_wait` and turn-boundary delivery. |
-| `src/kerkov/agents/agent_approval.py` | `SupervisedAgentApproval` — auto-approve within the whitelist unless the watching operator asked to review. |
+| `src/kerkov/agents/agent_approval.py` | `SupervisedAgentApproval` — the operator's deny rules (`AgentDenyRules`), then auto-approve within the whitelist unless the watching operator asked to review. |
 | `src/kerkov/cli/agent_focus_manager.py` | `AgentFocusManager` — whether the terminal is pointed at the master or at one agent. |
 | `src/kerkov/cli/agent_attach.py` | `AgentAttachView` — replays a focused agent's output, then follows it live. |
 | `src/kerkov/cli/buffering_sink.py` | `BufferingSink` — records the master's narration while attached, replays it on detach. |
@@ -105,8 +105,9 @@ the master's conversation, attributed to an agent the master never spawned.
      shared instance under in-flight agents.
    - Runs the shared `ConversationEngine` with the session's `AgentEventSink`
      (a `QuietSink` that also keeps `iteration` / `current_tool` / state
-     current) and a `SupervisedAgentApproval` — whitelist auto-approval unless
-     the operator is attached and asked to review this agent's calls.
+     current) and a `SupervisedAgentApproval` — the operator's deny rules, then
+     whitelist auto-approval unless the operator is attached and asked to
+     review this agent's calls.
    - The engine's `terminate_after_tool` hook stops the loop immediately when
      the agent calls `report`.
 7. The report reaches the master one of two ways, and exactly once either way
@@ -426,6 +427,15 @@ An agent auto-approves anything in the whitelist authorized by the delegation,
 whether through a prompt, rule, or approval mode (`SupervisedAgentApproval`).
 That makes detachment work: for most of a run nobody is watching, and a question nobody
 can see is a hung agent, not a safety feature.
+
+The one exception is the operator's **deny rules**, checked before anything
+else through `AgentDenyRules`. It holds the front end's own
+`ApprovalRulesEngine` and `ApprovalModeManager`, so session and workspace denies
+apply as well as the files, a rule saved mid-run reaches running agents, and
+`yolo` skips the rules for agents as it does for the master. Only `deny` is
+honoured: allow rules and unmatched calls stay with the whitelist, since there
+is nobody to prompt. A denied call reaches the agent as an ordinary denial and
+shows as `denied by rule: <tool>` in its output view.
 
 `/agents review <name|id> [on|off]` opts one agent out of that, and only while
 you are **attached to it**. Three conditions, all in

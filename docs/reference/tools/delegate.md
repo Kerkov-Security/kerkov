@@ -66,6 +66,12 @@ Allowing the batch, by prompt, rule, or mode, grants that autonomy for those
 tasks. It is also why `sast_scan` is in no built-in profile — a whitelisted call
 bypasses the prompt, and that scan is worth seeing.
 
+Your **deny rules still apply** to every agent, in every mode except `yolo`, and
+are read live: a deny saved or a mode switched mid-run reaches agents already
+running. The packaged `rm -rf`, `sudo`, `mkfs` and `shred` denies therefore
+block an agent's `exec` as they block yours. Allow rules and unmatched calls do
+not change what an agent does: it approves those itself.
+
 That autonomy reaches further than the batch you approved. Below
 [`AGENT_MAX_DEPTH`](../configuration.md#agents) every spawned agent receives a
 nested `delegate` of its own — outside its whitelist, since the runner appends it
