@@ -27,6 +27,10 @@ class HostCompliance {
     this.exportRequest = null;
     this.exportTimer = null;
     this.controlTimer = null;
+    this.controlsRequest = null;
+    this.controlsKey = null;
+    this.controlsResult = null;
+    this.controlsPage = 1;
     this.el("compliance-customize").addEventListener("click", () => {
       this.openSettings(this.field("user"));
       this.el("compliance-customize-heading").focus();
@@ -60,6 +64,7 @@ class HostCompliance {
     this.el("compliance-controls-clear").addEventListener("click", () => {
       this.el("compliance-control-search").value = "";
       this.el("compliance-control-filter").value = "all";
+      this.el("compliance-control-impact").value = "all";
       this.renderControlRows();
       this.el("compliance-control-search").focus();
     });
@@ -74,6 +79,15 @@ class HostCompliance {
     });
     this.el("compliance-control-search").addEventListener("input", () => this.renderControlRows());
     this.el("compliance-control-filter").addEventListener("change", () => this.renderControlRows());
+    for (const id of ["compliance-control-impact", "compliance-control-sort", "compliance-page-size"]) {
+      this.el(id).addEventListener("change", () => this.renderControlRows());
+    }
+    this.el("compliance-page-previous").addEventListener("click", () => this.renderControlRows(this.controlsPage - 1));
+    this.el("compliance-page-next").addEventListener("click", () => this.renderControlRows(this.controlsPage + 1));
+    this.el("compliance-controls-retry").addEventListener("click", () => {
+      this.controlsKey = null;
+      this.renderControlRows(this.controlsPage);
+    });
     this.el("compliance-control-close").addEventListener("click", () => this.el("compliance-control-drawer").close());
     this.el("compliance-control-drawer").addEventListener("close", () => {
       if (this.el("compliance-control-drawer").open) return;
@@ -153,6 +167,8 @@ class HostCompliance {
     this.el("compliance-profile-search").value = "";
     this.el("compliance-profile-source").value = "all";
     this.projects.reset();
+    this.el("compliance-control-impact").value = "all";
+    this.el("compliance-control-sort").value = "priority";
     this.closeReviewRequests();
     this.el("compliance-control-search").value = "";
     this.el("compliance-control-filter").value = "all";
@@ -461,7 +477,7 @@ class HostCompliance {
     this.el("compliance-history-refresh").disabled = !this.inventory.connected;
     for (const button of this.el("compliance-evidence-actions").querySelectorAll("button")) button.disabled = !this.inventory.connected;
     for (const button of this.el("compliance-controls").querySelectorAll("button")) button.disabled = !this.inventory.connected;
-    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).disabled = !this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || !!this.exportRequest;
+    for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).disabled = !this.inventory.connected || !this.savedRun || this.savedRun.status === "running" || !!this.exportRequest || !!this.controlsRequest;
     this.updateSettingsStatus();
     this.updateFixActions();
   }
@@ -684,6 +700,23 @@ class HostCompliance {
   handleEvent(type, payload) {
     const projectPreparation = !!this.projects.preparation && payload.message_id === this.projects.preparation.id;
     this.projects.handle(type, payload);
+    if (type === "compliance.controls") {
+      const request = this.controlsRequest;
+      if (!request || payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id || payload.request_id !== request.id) return;
+      this.controlsRequest = null;
+      clearTimeout(this.controlsTimer);
+      if (request.key === this.controlsKey) {
+        this.controlsResult = payload;
+        if (Number.isInteger(payload.page)) {
+          this.controlsPage = payload.page;
+          this.controlsQuery = { ...this.controlsQuery, page: payload.page };
+          this.controlsKey = this.controlQueryKey(this.controlsQuery);
+        }
+      }
+      this.renderControlRows(this.controlsPage);
+      this.setState();
+      return;
+    }
     if (type === "compliance.control" || type === "compliance.export") {
       if (payload.context_id !== this.inventory.contextId || payload.run_id !== this.savedRun?.id) return;
       if (type === "compliance.control" && payload.request_id === this.controlRequest) {
@@ -800,6 +833,8 @@ class HostCompliance {
       this.el("compliance-control-search").value = "";
       this.el("compliance-control-filter").value = "all";
       this.defaultFilterRunId = null;
+      this.el("compliance-control-impact").value = "all";
+      this.el("compliance-control-sort").value = "priority";
       this.el("compliance-setup").open = false;
     }
     this.savedRun = record;
@@ -829,7 +864,8 @@ class HostCompliance {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
     }
     this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
-    const report = record.after || record.before;
+    const latestPhase = this.assessmentPhase(record);
+    const report = record.request.action === "assess" ? record[latestPhase] : record.after || record.before;
     const counts = report?.counts;
     if (counts && this.defaultFilterRunId !== record.id) {
       this.el("compliance-control-filter").value = counts.failed ? "failed" : counts.error ? "error" : "all";
@@ -858,12 +894,12 @@ class HostCompliance {
     this.text("compliance-coverage-note", excluded
       ? `${excluded.notapplicable || 0} not applicable · ${excluded.notselected || 0} outside this profile${report.has_inconclusive_results ? " · Some results are inconclusive" : ""}`
       : counts ? Object.entries(counts).filter(([key, value]) => !["passed", "failed", "error"].includes(key) && value).map(([key, value]) => `${value} ${key.replaceAll("_", " ")}`).join(" · ") : "");
-    this.renderControlRows();
-    this.text("compliance-controls-notice", counts ? (report.controls_truncated ? "Showing up to 200 checks. The report includes complete results." : "") : "No verified assessment evidence received yet.");
+    this.renderControlRows(this.controlsPage);
+    this.text("compliance-controls-notice", counts ? (report.controls_truncated && !this.hasControlEvidence() ? "Only the saved summary is available here. Complete results require the original evidence." : "") : "No verified assessment evidence received yet.");
     const actions = [];
     for (const phase of ["before", "after", "remediation"]) {
       if (!record[phase]) continue;
-      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : record.request.action === "assess" ? (record.after ? `${phase === "after" ? "Latest" : "Previous"} evidence` : "Assessment evidence") : `${phase} evidence`}`);
+      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : record.request.action === "assess" ? (latestPhase === "after" ? `${phase === "after" ? "Latest" : "Previous"} evidence` : "Assessment evidence") : `${phase} evidence`}`);
       button.type = "button";
       button.addEventListener("click", () => this.inventory.send({ type: "compliance.evidence", context_id: this.inventory.contextId, run_id: record.id, phase }));
       actions.push(button);
@@ -875,18 +911,77 @@ class HostCompliance {
     this.setState();
   }
 
-  renderControlRows() {
+  assessmentPhase(record) {
+    return record?.after || record?.request.assessment_of ? "after" : "before";
+  }
+
+  hasControlEvidence() {
+    return [this.savedRun?.before, this.savedRun?.after].some(phase => phase?.report_artifact);
+  }
+
+  controlQueryKey(query) {
+    return JSON.stringify([this.inventory.contextId, this.savedRun?.id, this.savedRun?.before?.report_sha256, this.savedRun?.after?.report_sha256, query]);
+  }
+
+  requestControls() {
+    if (this.controlsRequest || !this.inventory.connected || !this.hasControlEvidence()) return;
+    if (this.exportRequest || this.controlRequest) {
+      this.controlsDebounce = setTimeout(() => this.requestControls(), 200);
+      return;
+    }
+    const request = { id: crypto.randomUUID(), key: this.controlsKey };
+    this.controlsRequest = request;
+    const sent = this.inventory.send({ type: "compliance.controls", context_id: this.inventory.contextId,
+      run_id: this.savedRun.id, request_id: request.id, query: this.controlsQuery });
+    const failed = () => {
+      if (this.controlsRequest !== request) return;
+      this.controlsRequest = null;
+      if (request.key === this.controlsKey) this.controlsResult = { detail: "Checks could not be loaded. Retry when connected." };
+      this.renderControlRows(this.controlsPage);
+      this.setState();
+    };
+    if (!sent) failed();
+    else this.controlsTimer = setTimeout(failed, 30000);
+    this.setState();
+  }
+
+  renderControlRows(page = 1) {
     const search = this.el("compliance-control-search").value.trim().toLowerCase();
     const filter = this.el("compliance-control-filter").value;
-    const controls = this.savedRun?.controls || [];
+    const impact = this.el("compliance-control-impact").value;
+    const sort = this.el("compliance-control-sort").value;
+    const complete = this.hasControlEvidence();
+    const query = { search, outcome: filter, impact, sort, page, page_size: Number(this.el("compliance-page-size").value) };
+    const key = this.controlQueryKey(query);
+    if (complete && key !== this.controlsKey) {
+      this.controlsKey = key;
+      this.controlsResult = null;
+      this.controlsPage = page;
+      this.controlsQuery = query;
+      clearTimeout(this.controlsDebounce);
+      this.controlsDebounce = setTimeout(() => this.requestControls(), 200);
+    } else if (complete && !this.controlsResult && !this.controlsRequest) {
+      clearTimeout(this.controlsDebounce);
+      this.controlsDebounce = setTimeout(() => this.requestControls(), 200);
+    }
+    const result = complete ? this.controlsResult || (!this.inventory.connected ? { detail: "Connection lost. Reconnect and retry loading checks." } : null) : null;
+    const controls = complete ? result?.controls || [] : this.savedRun?.controls || [];
     const assessmentOnly = this.savedRun?.request.action === "assess";
-    this.el("compliance-impact-heading").hidden = !!assessmentOnly;
+    const assessmentPhase = this.assessmentPhase(this.savedRun);
+    this.el("compliance-impact-heading").hidden = false;
     this.el("compliance-before-heading").textContent = assessmentOnly ? "Result" : "Before";
     this.el("compliance-after-heading").hidden = !!assessmentOnly;
-    const visible = controls.filter(control => {
-      const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
-      return (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
+    const visible = complete ? controls : controls.filter(control => {
+      const latest = (assessmentOnly ? control[assessmentPhase]
+        : control.after && control.after !== "unassessed" ? control.after : control.before) || "unassessed";
+      const value = control.impact;
+      const band = value == null ? "unknown" : value >= 0.7 ? "high" : value >= 0.4 ? "medium" : "low";
+      return (impact === "all" || band === impact) && (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
         [control.control_id, control.title, control.profile].join(" ").toLowerCase().includes(search);
+    });
+    if (!complete && sort !== "priority") visible.sort((a, b) => {
+      if (sort.startsWith("impact_")) return (a.impact == null) - (b.impact == null) || ((a.impact || 0) - (b.impact || 0)) * (sort === "impact_desc" ? -1 : 1);
+      return String(a[sort] || a.control_id).localeCompare(String(b[sort] || b.control_id));
     });
     this.el("compliance-controls").replaceChildren(...visible.map(control => {
       const row = this.node("tr", "", "");
@@ -898,22 +993,45 @@ class HostCompliance {
       button.setAttribute("aria-haspopup", "dialog");
       button.addEventListener("click", () => this.openControl(control));
       title.append(button);
+      if (complete) title.append(this.node("span", "compliance-control-identity", `${control.control_id} · ${control.profile}`));
       row.append(title);
+      row.append(this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
       if (assessmentOnly) {
-        const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+        const latest = control[assessmentPhase] || "unassessed";
         row.append(this.node("td", `compliance-outcome-${latest}`, latest.replaceAll("_", " ")));
       } else {
-        row.append(this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
         for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
       }
       return row;
     }));
     this.text("compliance-filter-notice", visible.length ? `${visible.length} of ${controls.length} loaded controls shown. Select a control to review its evidence.` : "No loaded controls match these filters.");
-    this.el("compliance-controls-clear").hidden = !search && filter === "all";
+    this.el("compliance-controls-clear").hidden = !search && filter === "all" && impact === "all";
+    this.el("compliance-pagination").hidden = !complete;
+    this.el("compliance-controls-retry").hidden = !result?.detail;
+    this.el("compliance-controls-retry").disabled = !this.inventory.connected;
+    this.el("compliance-run-review").setAttribute("aria-busy", String(complete && !result));
+    if (complete) {
+      const loaded = !!result && !result.detail;
+      const matched = result?.matched || 0;
+      const start = matched ? (result.page - 1) * result.page_size + 1 : 0;
+      this.text("compliance-filter-notice", result?.detail || (!loaded ? "Searching complete saved evidence…" : matched ? "Select a check to review its saved evidence." : "No checks match these filters."));
+      this.text("compliance-page-summary", loaded ? `${start}–${matched ? start + controls.length - 1 : 0} of ${matched} matching checks · ${result.total} total` : "");
+      this.text("compliance-page-number", loaded ? `Page ${result.page} of ${result.pages}` : "");
+      this.el("compliance-page-previous").disabled = !loaded || result.page <= 1 || !this.inventory.connected;
+      this.el("compliance-page-next").disabled = !loaded || result.page >= result.pages || !this.inventory.connected;
+    }
     for (const metric of this.el("compliance-metrics").querySelectorAll("[data-outcome]")) metric.setAttribute("aria-pressed", String(metric.dataset.outcome === filter));
   }
 
   closeReviewRequests() {
+    this.controlsRequest = null;
+    this.controlsKey = null;
+    this.controlsResult = null;
+    this.controlsPage = 1;
+    clearTimeout(this.controlsTimer);
+    clearTimeout(this.controlsDebounce);
+    this.el("compliance-page-previous").disabled = true;
+    this.el("compliance-page-next").disabled = true;
     this.controlRequest = null;
     this.exportRequest = null;
     clearTimeout(this.controlTimer);
@@ -948,11 +1066,14 @@ class HostCompliance {
     mapping.append(this.node("h4", "", "Remediation mapping"), this.node("p", "", control.remediation));
     const assessmentOnly = this.savedRun?.request.action === "assess";
     const sections = assessmentOnly ? [] : [mapping];
-    const phases = assessmentOnly ? [control.after && control.after.status !== "unassessed" ? "after" : "before"] : ["before", "after"];
+    const current = this.assessmentPhase(this.savedRun);
+    const phases = assessmentOnly ? [current] : ["before", "after"];
+    if (assessmentOnly && current === "after" && this.savedRun.before) phases.push("before");
     for (const phase of phases) {
       const data = control[phase];
       const section = this.node("section", "compliance-control-phase", "");
-      section.append(this.node("h4", "", `${assessmentOnly ? "Result" : phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
+      const label = assessmentOnly ? (phase === current ? "Result" : "Previous") : phase === "before" ? "Before" : "After";
+      section.append(this.node("h4", "", `${label}: ${data.status.replaceAll("_", " ")}`));
       if (data.description) section.append(this.node("p", "", data.description));
       if (data.rationale) section.append(this.node("p", "", `Rationale: ${data.rationale}`));
       if (data.detail) section.append(this.node("p", "", data.detail));
@@ -1031,6 +1152,10 @@ class HostCompliance {
     this.projects.preparation = null;
     this.projects.render();
     this.closeReviewRequests();
+    if (this.hasControlEvidence()) {
+      this.text("compliance-filter-notice", "Connection lost. Reconnect to load complete checks.");
+      this.el("compliance-run-review").setAttribute("aria-busy", "false");
+    }
     if (!this.workflowId) return;
     this.text("compliance-status", "Connection lost. Resume the engagement to review the saved evidence.");
     if (this.run) this.result("Workflow connection lost", "The final outcome is unknown. Review saved evidence before retrying changes.");

@@ -6,7 +6,9 @@ import hashlib
 import json
 from html import escape
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from kerkov.core.compliance.cinc_report import (
     MAX_REPORT_BYTES,
@@ -162,6 +164,116 @@ def _remediation(record: dict[str, Any], profile: str, control_id: str) -> str:
         if isinstance(fix, str) and fix:
             return fix
     return "Manual review required: no saved control-to-fix mapping is available."
+
+
+class ControlQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    search: str = Field(default="", max_length=256)
+    outcome: Literal[
+        "all",
+        "unresolved",
+        "passed",
+        "failed",
+        "error",
+        "skipped",
+        "waived",
+        "no_tests",
+        "unassessed",
+    ] = "all"
+    impact: Literal["all", "high", "medium", "low", "unknown"] = "all"
+    sort: Literal["priority", "impact_desc", "impact_asc", "title", "control_id"] = (
+        "priority"
+    )
+    page: int = Field(default=1, ge=1, le=100_000)
+    page_size: Literal[25, 50, 100] = 50
+
+
+def browse_controls(
+    workspace: Path,
+    record: dict[str, Any],
+    query: ControlQuery,
+    *,
+    evidence: ReviewEvidence | None = None,
+) -> dict[str, Any]:
+    evidence = evidence or ReviewEvidence()
+    phases = {
+        phase: evidence.load(workspace, record[phase])[0]
+        for phase in ("before", "after")
+        if record.get(phase)
+    }
+    controls = control_comparison(phases)
+    total = len(controls)
+    search = query.search.strip().casefold()
+    request = record["request"]
+    reassessment = request["action"] == "assess" and (
+        record.get("after") or request.get("assessment_of")
+    )
+    priority = {
+        status: index
+        for index, status in enumerate(
+            ("error", "failed", "skipped", "no_tests", "waived", "unassessed", "passed")
+        )
+    }
+
+    def latest(control: dict[str, Any]) -> str:
+        return (
+            control["after"]
+            if reassessment or control["after"] != "unassessed"
+            else control["before"]
+        )
+
+    def impact_band(control: dict[str, Any]) -> str:
+        impact = control.get("impact")
+        if impact is None:
+            return "unknown"
+        return "high" if impact >= 0.7 else "medium" if impact >= 0.4 else "low"
+
+    controls = [
+        control
+        for control in controls
+        if (
+            query.outcome == "all"
+            or (query.outcome == "unresolved" and latest(control) != "passed")
+            or latest(control) == query.outcome
+        )
+        and (query.impact == "all" or impact_band(control) == query.impact)
+        and search
+        in " ".join(
+            str(control.get(key, "")) for key in ("profile", "control_id", "title")
+        ).casefold()
+    ]
+
+    def sort_key(control: dict[str, Any]) -> tuple[Any, ...]:
+        impact = control.get("impact")
+        identity = (control["profile"].casefold(), control["control_id"].casefold())
+        by_impact = (impact is None, -(impact or 0))
+        if query.sort == "priority":
+            return (priority.get(latest(control), 99), *by_impact, *identity)
+        if query.sort in {"impact_desc", "impact_asc"}:
+            return (
+                impact is None,
+                (impact or 0) * (-1 if query.sort == "impact_desc" else 1),
+                *identity,
+            )
+        return (
+            str(control.get(query.sort) or control["control_id"]).casefold(),
+            *identity,
+        )
+
+    controls.sort(key=sort_key)
+    matched = len(controls)
+    pages = max(1, (matched + query.page_size - 1) // query.page_size)
+    page = min(query.page, pages)
+    start = (page - 1) * query.page_size
+    return {
+        "controls": controls[start : start + query.page_size],
+        "total": total,
+        "matched": matched,
+        "page": page,
+        "pages": pages,
+        "page_size": query.page_size,
+    }
 
 
 def review_control(

@@ -324,7 +324,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             await read_evidence(self.session, content)
             return
 
-        if event_type in ("compliance.control", "compliance.export"):
+        if event_type in (
+            "compliance.control",
+            "compliance.controls",
+            "compliance.export",
+        ):
             request_id = content.get("request_id")
             if (
                 not isinstance(request_id, str)

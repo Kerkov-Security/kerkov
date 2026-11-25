@@ -5,7 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from kerkov.core.compliance.review import ReviewEvidence, export_report, review_control
+from kerkov.core.compliance.review import (
+    ControlQuery,
+    ReviewEvidence,
+    browse_controls,
+    export_report,
+    review_control,
+)
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.workflows.compliance import (
     ComplianceRun,
@@ -138,6 +144,13 @@ async def review_saved_run(
 
     def read() -> dict[str, Any]:
         record = WorkflowStore(workspace).load(content.get("run_id", ""))
+        if event_type == "compliance.controls":
+            return browse_controls(
+                workspace,
+                record,
+                ControlQuery.model_validate(content.get("query", {})),
+                evidence=evidence,
+            )
         if event_type == "compliance.export":
             return export_report(
                 workspace, record, content.get("format", ""), evidence=evidence
