@@ -548,6 +548,7 @@ def test_complete_browser_disconnect_discards_pending_page(dashboard):
 def test_results_keep_outcome_labels_distinct_and_show_impact_bands(dashboard):
     page = dashboard
     record = _show_record(page)
+    record["controls"][1]["impact"] = 0.4
     record["controls"].extend(
         [
             {
@@ -587,10 +588,40 @@ def test_results_keep_outcome_labels_distinct_and_show_impact_bands(dashboard):
     ).to_have_text("High · 0.7")
     expect(
         page.locator("#compliance-controls tr").nth(1).locator(".compliance-impact")
-    ).to_have_text("Medium · 0.5")
+    ).to_have_text("Medium · 0.4")
     expect(
         page.locator("#compliance-controls tr").nth(6).locator(".compliance-impact")
     ).to_have_text("Low · 0")
     expect(
         page.locator("#compliance-controls tr").nth(7).locator(".compliance-impact")
     ).to_have_text("Unknown")
+    impact = page.locator("#compliance-control-impact")
+    for band, count in (("high", 1), ("medium", 5), ("low", 1), ("unknown", 1)):
+        impact.select_option(band)
+        cells = page.locator("#compliance-controls .compliance-impact")
+        expect(cells).to_have_count(count)
+        assert all(
+            label.startswith(band.title()) for label in cells.all_text_contents()
+        )
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_sticky_header_keeps_keyboard_focused_control_visible(
+    dashboard, tmp_path, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1440})
+    _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    buttons = page.locator("#compliance-controls button")
+    previous = buttons.nth(5)
+    buttons.nth(6).focus()
+    previous.evaluate("""node => {
+      const table = node.closest('.compliance-table-wrap');
+      table.scrollTop += node.getBoundingClientRect().top - table.getBoundingClientRect().top - 2;
+    }""")
+    page.keyboard.press("Shift+Tab")
+    expect(previous).to_be_focused()
+    header = page.locator(".compliance-controls th").first.bounding_box()
+    focused = previous.bounding_box()
+    assert focused["y"] >= header["y"] + header["height"]

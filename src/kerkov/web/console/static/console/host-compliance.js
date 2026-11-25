@@ -930,9 +930,15 @@ class HostCompliance {
     return cell;
   }
 
+  impactBand(impact) {
+    if (impact == null) return "unknown";
+    return impact >= 0.7 ? "high" : impact >= 0.4 ? "medium" : "low";
+  }
+
   impactCell(impact) {
-    const band = impact == null ? "Unknown" : impact >= 0.7 ? "High" : impact >= 0.4 ? "Medium" : "Low";
-    return this.node("td", "compliance-impact", impact == null ? band : `${band} · ${impact}`);
+    const band = this.impactBand(impact);
+    const label = band[0].toUpperCase() + band.slice(1);
+    return this.node("td", "compliance-impact", impact == null ? label : `${label} · ${impact}`);
   }
 
   requestControls() {
@@ -986,9 +992,8 @@ class HostCompliance {
     const visible = complete ? controls : controls.filter(control => {
       const latest = (assessmentOnly ? control[assessmentPhase]
         : control.after && control.after !== "unassessed" ? control.after : control.before) || "unassessed";
-      const value = control.impact;
-      const band = value == null ? "unknown" : value >= 0.7 ? "high" : value >= 0.4 ? "medium" : "low";
-      return (impact === "all" || band === impact) && (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
+      return (impact === "all" || this.impactBand(control.impact) === impact) &&
+        (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
         [control.control_id, control.title, control.profile].join(" ").toLowerCase().includes(search);
     });
     if (!complete && sort !== "priority") visible.sort((a, b) => {
