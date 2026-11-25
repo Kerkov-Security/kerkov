@@ -882,6 +882,7 @@ class HostCompliance {
         metric.setAttribute("aria-label", `Show ${status === "error" ? "errored" : status} checks`);
         metric.addEventListener("click", () => {
           this.el("compliance-control-search").value = "";
+          this.el("compliance-control-impact").value = "all";
           this.el("compliance-control-filter").value = status;
           this.renderControlRows();
         });

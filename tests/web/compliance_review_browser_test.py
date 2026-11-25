@@ -438,6 +438,21 @@ def test_complete_browser_reports_changed_evidence_and_retries(dashboard, tmp_pa
     )
 
 
+def test_outcome_count_shortcut_clears_search_and_impact(dashboard, tmp_path):
+    page = dashboard
+    _show_complete_record(page, tmp_path)
+    search = page.locator("#compliance-control-search")
+    impact = page.locator("#compliance-control-impact")
+    search.fill("SSH")
+    impact.select_option("high")
+    page.get_by_role("button", name="Show failed checks").click()
+    expect(search).to_have_value("")
+    expect(impact).to_have_value("all")
+    expect(page.locator("#compliance-page-summary")).to_contain_text(
+        "92 matching checks"
+    )
+
+
 def test_complete_browser_discards_old_search_and_run_responses(dashboard):
     page = dashboard
     record = _show_record(page)
