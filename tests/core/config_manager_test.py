@@ -97,6 +97,118 @@ def test_agent_routing_settings_load_from_environment(tmp_path, monkeypatch) -> 
     assert config.agent_routing_large_model == "large"
 
 
+def test_skills_extra_dirs_default_to_empty() -> None:
+    assert ConfigManager().skills_extra_dirs == []
+
+
+def test_skills_extra_dirs_parse_a_comma_separated_list(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
+    monkeypatch.setenv(
+        "SKILLS_EXTRA_DIRS", " ~/.config/agents/skills , /srv/repo/.agents/skills ,"
+    )
+
+    config = load_config(env_file=str(tmp_path / "missing.env"))
+
+    assert config.skills_extra_dirs == [
+        "~/.config/agents/skills",
+        "/srv/repo/.agents/skills",
+    ]
+
+
+def _plant_skill_roots_target(tmp_path):
+    target = tmp_path / "target-checkout"
+    target.mkdir()
+    (target / ".env").write_text("SKILLS_EXTRA_DIRS=./external\n", encoding="utf-8")
+    return target
+
+
+def test_skills_extra_dirs_are_ignored_from_a_discovered_dotenv(tmp_path) -> None:
+    target = _plant_skill_roots_target(tmp_path)
+
+    with _loading_from(target) as load:
+        first = load()
+        # load_dotenv left the planted value in os.environ, where a reload must
+        # not mistake it for the operator's own environment.
+        reloaded = load()
+
+    assert first.skills_extra_dirs == []
+    assert reloaded.skills_extra_dirs == []
+    assert "SKILLS_EXTRA_DIRS" in reloaded.untrusted_env_names
+
+
+def test_skills_extra_dirs_from_the_environment_outlive_a_discovered_dotenv(
+    tmp_path,
+) -> None:
+    target = _plant_skill_roots_target(tmp_path)
+
+    with _loading_from(target) as load:
+        os.environ["SKILLS_EXTRA_DIRS"] = "/opt/operator/skills"
+        config = load()
+
+    assert config.skills_extra_dirs == ["/opt/operator/skills"]
+
+
+def test_skills_extra_dirs_are_honored_from_the_checkout_dotenv(tmp_path) -> None:
+    checkout = tmp_path / "kerkov"
+    checkout.mkdir()
+    (checkout / ".env").write_text("SKILLS_EXTRA_DIRS=external\n", encoding="utf-8")
+
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(checkout, kerkov_env=checkout / ".env") as load,
+    ):
+        config = load()
+
+    assert config.skills_extra_dirs == [str(checkout / "external")]
+
+
+def test_skills_extra_dirs_do_not_trust_a_dotenv_nested_in_the_checkout(
+    tmp_path,
+) -> None:
+    checkout = tmp_path / "kerkov"
+    nested = checkout / "workspaces" / "cloned-target"
+    nested.mkdir(parents=True)
+    (nested / ".env").write_text("SKILLS_EXTRA_DIRS=external\n", encoding="utf-8")
+
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(nested, kerkov_env=checkout / ".env") as load,
+    ):
+        config = load()
+
+    assert config.skills_extra_dirs == []
+
+
+def test_skills_extra_dirs_anchor_relative_paths_outside_the_launch_directory(
+    tmp_path,
+) -> None:
+    checkout = tmp_path / "kerkov"
+    checkout.mkdir()
+    launch_dir = tmp_path / "elsewhere"
+    launch_dir.mkdir()
+
+    with (
+        patch.object(config_manager, "find_project_root", return_value=checkout),
+        _loading_from(launch_dir) as load,
+    ):
+        os.environ["SKILLS_EXTRA_DIRS"] = "external"
+        config = load()
+
+    assert config.skills_extra_dirs == [str(checkout / "external")]
+
+
+def test_skills_extra_dirs_accept_a_list() -> None:
+    config = ConfigManager(SKILLS_EXTRA_DIRS=["/a", " /b "])
+
+    assert config.skills_extra_dirs == ["/a", "/b"]
+
+
+def test_skills_extra_dirs_reject_unsupported_values() -> None:
+    with pytest.raises(ValidationError):
+        ConfigManager(SKILLS_EXTRA_DIRS=7)
+
+
 def test_model_pricing_file_loads_from_environment(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(USER_SETTINGS_FILE_ENV_VAR, str(tmp_path / "settings.json"))
@@ -551,6 +663,7 @@ def _loading_from(directory, *, kerkov_env=None):
     """Yield a `load_config` that runs from `directory`, isolated from the real env."""
     with (
         patch.dict(os.environ, {}, clear=False),
+        patch.dict(config_manager._DOTENV_INJECTED, clear=True),
         patch.object(config_manager, "_load_user_settings", return_value={}),
         patch.object(config_manager, "_load_codex_static_config", return_value={}),
         patch.object(config_manager, "load_json_file", return_value={}),
@@ -560,7 +673,7 @@ def _loading_from(directory, *, kerkov_env=None):
             return_value=kerkov_env or directory / "not-kerkov" / ".env",
         ),
     ):
-        for name in ("MCP_CONFIG_PATH", "PLANTED_VALUE"):
+        for name in ("MCP_CONFIG_PATH", "PLANTED_VALUE", "SKILLS_EXTRA_DIRS"):
             os.environ.pop(name, None)
         cwd = os.getcwd()
         os.chdir(directory)

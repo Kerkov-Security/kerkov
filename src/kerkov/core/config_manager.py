@@ -20,11 +20,18 @@ from pydantic import (
 
 from kerkov.core.json_state import load_json_file, resolve_repo_path
 from kerkov.core.private_files import write_private_json
-from kerkov.core.project_paths import bundled_asset_path, resolve_project_dir
+from kerkov.core.project_paths import (
+    bundled_asset_path,
+    find_project_root,
+    resolve_project_dir,
+)
 
 DEFAULT_CODEX_CONFIG_PATH = "config/codex.json"
 DEFAULT_CODEX_STATE_PATH = "data/providers/codex/auth.json"
 DEFAULT_USER_SETTINGS_PATH = "~/.kerkov/settings.json"
+USER_CONFIG_SUBDIR = ".kerkov"
+SKILLS_EXTRA_DIRS_KEY = "SKILLS_EXTRA_DIRS"
+MCP_CONFIG_PATH_KEY = "MCP_CONFIG_PATH"
 USER_SETTINGS_FILE_ENV_VAR = "KERKOV_SETTINGS_FILE"
 _USER_SETTINGS_LOCK = threading.RLock()
 SUPPORTED_USER_SETTINGS = frozenset(
@@ -71,9 +78,41 @@ def _parse_boolean(value: object) -> bool:
     return bool(value)
 
 
-# Settings that choose what Kerkov executes; a `.env` found in the working
-# directory may belong to the target under test, so only trusted sources count.
-TRUSTED_SOURCE_SETTINGS = frozenset({"MCP_CONFIG_PATH"})
+def _parse_dir_list(value: object) -> list[str]:
+    """Split a comma-separated directory list, dropping blank entries."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts: list[str] = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = [str(item) for item in value]
+    else:
+        raise ValueError(f"must be a comma-separated string or a list, got {value!r}")
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _operator_config_dir() -> Path:
+    """Return the directory operator-relative paths resolve against."""
+    checkout = find_project_root()
+    if checkout is not None:
+        return checkout
+    return Path.home() / USER_CONFIG_SUBDIR
+
+
+def _anchor_operator_path(entry: str, base: Path) -> str:
+    """Anchor a relative configured path to trusted configuration, not the cwd."""
+    candidate = Path(entry)
+    # A drive or a root is enough: Windows calls a driveless `/srv/skills`
+    # relative, and rewriting it against the base would invent a drive.
+    if entry.startswith("~") or candidate.drive or candidate.root:
+        return entry
+    return str(base / candidate)
+
+
+# Settings that choose what Kerkov executes or tells the model; a `.env` found in
+# the working directory may belong to the target under test, so only trusted
+# sources count. Extra skill roots put their SKILL.md text in the startup catalog.
+TRUSTED_SOURCE_SETTINGS = frozenset({MCP_CONFIG_PATH_KEY, SKILLS_EXTRA_DIRS_KEY})
 
 # `load_dotenv` leaves its values in `os.environ` for the life of the process, so
 # a later `load_config()` cannot tell them from the real environment any more.
@@ -160,6 +199,14 @@ class ConfigManager(BaseModel):
         alias="HTTP_PROFILES_PATH",
     )
     agent_temperature: Optional[float] = Field(None, alias="AGENT_TEMPERATURE")
+
+    # Extra SKILL.md roots merged after the resolved skills directory, in the
+    # order given. Explicit paths only: Kerkov never discovers skills in a
+    # target repository met during an engagement. Earlier roots win a name
+    # collision, so an external skill cannot replace a shipped playbook.
+    skills_extra_dirs: list[str] = Field(
+        default_factory=list, alias="SKILLS_EXTRA_DIRS"
+    )
 
     # Web Search (WebSearchTool). The tool is only registered when the selected
     # provider's requirements can be met. Tavily can use the runtime credential
@@ -349,6 +396,15 @@ class ConfigManager(BaseModel):
             raise ValueError(f"MAX_RESPONSE_TOKENS must be positive, got {tokens}")
         return tokens
 
+    @field_validator("skills_extra_dirs", mode="before")
+    @classmethod
+    def parse_skills_extra_dirs(cls, v):
+        """Parse a comma-separated directory list from the environment."""
+        try:
+            return _parse_dir_list(v)
+        except ValueError as e:
+            raise ValueError(f"{SKILLS_EXTRA_DIRS_KEY} {e}")
+
     @field_validator("agent_temperature", mode="before")
     @classmethod
     def validate_agent_temperature(cls, v):
@@ -425,17 +481,11 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
     if env_path is not None:
         env_file = str(env_path)
 
-    _forget_stale_dotenv_injections()
     if env_file and Path(env_file).exists():
         logger.info(f"Loading .env from: {env_file}")
-        candidates: FrozenSet[str] = frozenset()
-        if not explicit_env_file and not _is_kerkov_env_file(Path(env_file)):
-            candidates = frozenset(
-                name for name in dotenv_values(env_file) if name not in os.environ
-            )
-        load_dotenv(env_file)
-        _record_dotenv_injection(env_file, candidates)
+        load_env_file(env_file, trusted=explicit_env_file)
     else:
+        _forget_stale_dotenv_injections()
         logger.warning("No .env file found, using defaults and environment variables")
     untrusted_sources = _untrusted_dotenv_sources()
     untrusted_names: FrozenSet[str] = frozenset(untrusted_sources)
@@ -469,6 +519,7 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
             "SUMMARY_RESERVE_TOKENS",
             "MAX_TIMEOUT_SECONDS",
             "HTTP_PROFILES_PATH",
+            "SKILLS_EXTRA_DIRS",
             "SEARCH_PROVIDER",
             "SEARCH_API_KEY",
             "SEARCH_BASE_URL",
@@ -536,6 +587,11 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         environment_config.pop(name, None)
     config_dict = _load_user_settings()
     config_dict.update(environment_config)
+    skills_base = _operator_config_dir()
+    config_dict[SKILLS_EXTRA_DIRS_KEY] = [
+        _anchor_operator_path(entry, skills_base)
+        for entry in _parse_dir_list(environment_config.get(SKILLS_EXTRA_DIRS_KEY))
+    ]
 
     codex_static_config = _load_codex_static_config(env_path)
     config_dict.update(codex_static_config)
@@ -574,6 +630,22 @@ def load_config(env_file: Optional[str] = None) -> ConfigManager:
         f"max_tokens={config.max_context_tokens}"
     )
     return config
+
+
+def load_env_file(env_file: str, trusted: bool = False) -> None:
+    """Publish a `.env` into the environment, remembering what an untrusted one set.
+
+    Every `.env` load in the process must go through here: a value published by
+    a bare `load_dotenv` would later pass for the operator's own environment.
+    """
+    _forget_stale_dotenv_injections()
+    candidates: FrozenSet[str] = frozenset()
+    if not trusted and not _is_kerkov_env_file(Path(env_file)):
+        candidates = frozenset(
+            name for name in dotenv_values(env_file) if name not in os.environ
+        )
+    load_dotenv(env_file)
+    _record_dotenv_injection(env_file, candidates)
 
 
 def _forget_stale_dotenv_injections() -> None:

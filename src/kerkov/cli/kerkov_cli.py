@@ -44,7 +44,7 @@ from kerkov.cli.provider_setup_extension import (
 )
 from kerkov.cli.tool_approval_helper import ToolApprovalCliHelper
 from kerkov.context.context_compactor import ContextCompactor
-from kerkov.core.config_manager import TRUSTED_SOURCE_SETTINGS, get_config
+from kerkov.core.config_manager import MCP_CONFIG_PATH_KEY, get_config
 from kerkov.core.conversation_engine import (
     ApprovalStrategy,
     ConsoleSink,
@@ -265,10 +265,9 @@ class KerkovCLI(ProviderSetupExtension):
         """Connect the configured MCP servers and register their tools."""
         if self.mcp is None:
             return
-        ignored = sorted(TRUSTED_SOURCE_SETTINGS & self.config.untrusted_env_names)
-        if ignored:
+        if MCP_CONFIG_PATH_KEY in self.config.untrusted_env_names:
             console.print(
-                f"[yellow]Ignored {escape(', '.join(ignored))} from "
+                f"[yellow]Ignored {MCP_CONFIG_PATH_KEY} from "
                 f"{escape(str(self.config.untrusted_env_file))}: a .env outside the "
                 "Kerkov checkout cannot choose MCP servers.[/yellow]"
             )

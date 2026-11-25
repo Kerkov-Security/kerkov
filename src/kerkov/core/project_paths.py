@@ -19,6 +19,11 @@ def _find_project_root(start_dir: Path) -> Optional[Path]:
     return None
 
 
+def find_project_root(start_dir: Optional[Path] = None) -> Optional[Path]:
+    """Return the Kerkov checkout root, or None when not running from a checkout."""
+    return _find_project_root(start_dir or Path(__file__))
+
+
 def resolve_project_dir(name: str, start_dir: Optional[Path] = None) -> Path:
     """Prefer checkout assets, then user assets, then bundled defaults.
 

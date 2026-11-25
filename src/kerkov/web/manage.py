@@ -7,7 +7,9 @@ import os
 import sys
 from typing import Optional, Sequence
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import find_dotenv
+
+from kerkov.core.config_manager import load_env_file
 
 try:
     from daphne.management.commands.runserver import Command as RunserverCommand
@@ -66,7 +68,7 @@ def _load_web_environment() -> None:
 
     env_path = find_dotenv(usecwd=True)
     if env_path:
-        load_dotenv(env_path)
+        load_env_file(env_path)
 
 
 def _guard_local_runserver(args: Sequence[str]) -> None:

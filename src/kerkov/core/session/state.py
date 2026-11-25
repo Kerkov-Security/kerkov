@@ -88,7 +88,7 @@ def build_session_state(
         approval_mode_manager=approval_mode_manager,
         autonomy_manager=autonomy_manager,
         workspace_manager=RunWorkspaceManager(config.workspace_dir),
-        skill_manager=SkillManager(),
+        skill_manager=SkillManager(extra_dirs=config.skills_extra_dirs),
         agent_manager=AgentManager(),
         agent_registry=AgentRegistry(
             max_depth=config.agent_max_depth,

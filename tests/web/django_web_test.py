@@ -189,7 +189,7 @@ def test_main_loads_dotenv_before_django_setup(monkeypatch) -> None:
         manage, "find_dotenv", lambda **kwargs: calls.append("find") or "/tmp/.env"
     )
     monkeypatch.setattr(
-        manage, "load_dotenv", lambda path: calls.append(f"load:{path}")
+        manage, "load_env_file", lambda path: calls.append(f"load:{path}")
     )
     monkeypatch.setattr(manage, "django_setup", lambda: calls.append("setup"))
     monkeypatch.setattr(
@@ -214,6 +214,42 @@ def test_load_web_environment_from_working_directory(tmp_path, monkeypatch) -> N
         manage._load_web_environment()
 
         assert os.environ["KERKOV_WEB_TEST_SENTINEL"] == "loaded-from-dotenv"
+
+
+def test_web_dotenv_from_a_target_stays_untrusted_for_load_config(tmp_path) -> None:
+    from kerkov.core import config_manager
+
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / ".env").write_text(
+        "SKILLS_EXTRA_DIRS=./external\nMCP_CONFIG_PATH=mcp.json\n", encoding="utf-8"
+    )
+    cwd = os.getcwd()
+    # load_dotenv writes os.environ directly, which monkeypatch cannot undo.
+    with (
+        patch.dict(os.environ),
+        patch.dict(config_manager._DOTENV_INJECTED, clear=True),
+        patch.object(config_manager, "_load_user_settings", return_value={}),
+        patch.object(config_manager, "_load_codex_static_config", return_value={}),
+        patch.object(config_manager, "load_json_file", return_value={}),
+        patch.object(
+            config_manager, "bundled_asset_path", return_value=tmp_path / ".env"
+        ),
+    ):
+        for name in ("SKILLS_EXTRA_DIRS", "MCP_CONFIG_PATH"):
+            os.environ.pop(name, None)
+        os.chdir(target)
+        try:
+            # kerkov-web publishes the .env before Django, and so before the
+            # runtime's own load_config ever sees it.
+            manage._load_web_environment()
+            config = config_manager.load_config()
+        finally:
+            os.chdir(cwd)
+
+    assert config.skills_extra_dirs == []
+    assert config.mcp_config_path is None
+    assert {"SKILLS_EXTRA_DIRS", "MCP_CONFIG_PATH"} <= config.untrusted_env_names
 
 
 def test_settings_reject_non_ascii_access_token() -> None:

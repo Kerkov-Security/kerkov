@@ -23,7 +23,7 @@ from kerkov.core.cancellable_task import (
 from kerkov.core.commands import Intent, parse
 from kerkov.core.compliance.profile_sources import ProfileSource
 from kerkov.core.config_manager import (
-    TRUSTED_SOURCE_SETTINGS,
+    MCP_CONFIG_PATH_KEY,
     ConfigManager,
     get_config,
 )
@@ -395,12 +395,11 @@ class WebKerkovSession:
         """Connect the configured MCP servers and register their tools."""
         if self.mcp is None:
             return
-        ignored = sorted(TRUSTED_SOURCE_SETTINGS & self.config.untrusted_env_names)
-        if ignored:
+        if MCP_CONFIG_PATH_KEY in self.config.untrusted_env_names:
             self.bus.emit(
                 "log.warning",
                 {
-                    "message": f"Ignored {', '.join(ignored)} from "
+                    "message": f"Ignored {MCP_CONFIG_PATH_KEY} from "
                     f"{self.config.untrusted_env_file}: a .env outside the Kerkov "
                     "checkout cannot choose MCP servers."
                 },
