@@ -300,7 +300,15 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     button.click()
     request = last_request(page, "compliance.control")
     assert request["control_id"] == "xccdf_example_rule_passwd_permissions"
-    _reply_control(page, request)
+    _reply_control(
+        page,
+        request,
+        control={
+            "notice": "Current assessment evidence",
+            "before": {"status": "unassessed", "tests": []},
+            "after": {"status": "failed", "tests": []},
+        },
+    )
     expect(page.locator("#compliance-control-drawer")).to_contain_text("Result: failed")
     expect(page.locator("#compliance-control-drawer")).not_to_contain_text(
         "After: unassessed"
@@ -326,6 +334,36 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     assert not page.evaluate(
         "window.testSocket.sent.some(message => message.type === 'compliance.run')"
     )
+
+
+def test_reassessment_distinguishes_latest_result_from_a_previous_pass(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["status"] = "failed"
+    record["request"].update(action="assess", assessment_of="b" * 32)
+    record["before"] = {"counts": {"passed": 1, "failed": 0}}
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    expect(page.locator("#compliance-metrics")).to_be_hidden()
+    filter_outcome = page.locator("#compliance-control-filter")
+    filter_outcome.select_option("passed")
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    filter_outcome.select_option("unassessed")
+    check = page.get_by_role("button", name="Check passed", exact=True)
+    expect(check.locator("xpath=ancestor::tr")).to_contain_text("unassessed")
+    check.click()
+    request = last_request(page, "compliance.control")
+    _reply_control(
+        page,
+        request,
+        control={
+            "notice": "Saved evidence",
+            "before": {"status": "passed", "tests": []},
+            "after": {"status": "unassessed", "tests": []},
+        },
+    )
+    drawer = page.locator("#compliance-control-drawer")
+    expect(drawer).to_contain_text("Result: unassessed")
+    expect(drawer).to_contain_text("Previous: passed")
 
 
 def _show_complete_record(page, tmp_path):

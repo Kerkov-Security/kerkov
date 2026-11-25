@@ -864,7 +864,8 @@ class HostCompliance {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
     }
     this.text("compliance-plan-evidence", JSON.stringify({ plan: record.plan, evidence }, null, 2));
-    const report = record.after || record.before;
+    const latestPhase = this.assessmentPhase(record);
+    const report = record.request.action === "assess" ? record[latestPhase] : record.after || record.before;
     const counts = report?.counts;
     if (counts && this.defaultFilterRunId !== record.id) {
       this.el("compliance-control-filter").value = counts.failed ? "failed" : counts.error ? "error" : "all";
@@ -898,7 +899,7 @@ class HostCompliance {
     const actions = [];
     for (const phase of ["before", "after", "remediation"]) {
       if (!record[phase]) continue;
-      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : record.request.action === "assess" ? (record.after ? `${phase === "after" ? "Latest" : "Previous"} evidence` : "Assessment evidence") : `${phase} evidence`}`);
+      const button = this.node("button", "inventory-button", `${phase === "remediation" ? "Remediation log" : record.request.action === "assess" ? (latestPhase === "after" ? `${phase === "after" ? "Latest" : "Previous"} evidence` : "Assessment evidence") : `${phase} evidence`}`);
       button.type = "button";
       button.addEventListener("click", () => this.inventory.send({ type: "compliance.evidence", context_id: this.inventory.contextId, run_id: record.id, phase }));
       actions.push(button);
@@ -908,6 +909,10 @@ class HostCompliance {
     this.el("compliance-review-apply").disabled = !this.inventory.canWrite();
     this.el("compliance-reassess").disabled = !this.inventory.canWrite() || record.status === "running" || !record.plan?.profile;
     this.setState();
+  }
+
+  assessmentPhase(record) {
+    return record?.after || record?.request.assessment_of ? "after" : "before";
   }
 
   hasControlEvidence() {
@@ -962,11 +967,13 @@ class HostCompliance {
     const result = complete ? this.controlsResult || (!this.inventory.connected ? { detail: "Connection lost. Reconnect and retry loading checks." } : null) : null;
     const controls = complete ? result?.controls || [] : this.savedRun?.controls || [];
     const assessmentOnly = this.savedRun?.request.action === "assess";
+    const assessmentPhase = this.assessmentPhase(this.savedRun);
     this.el("compliance-impact-heading").hidden = false;
     this.el("compliance-before-heading").textContent = assessmentOnly ? "Result" : "Before";
     this.el("compliance-after-heading").hidden = !!assessmentOnly;
     const visible = complete ? controls : controls.filter(control => {
-      const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+      const latest = (assessmentOnly ? control[assessmentPhase]
+        : control.after && control.after !== "unassessed" ? control.after : control.before) || "unassessed";
       const value = control.impact;
       const band = value == null ? "unknown" : value >= 0.7 ? "high" : value >= 0.4 ? "medium" : "low";
       return (impact === "all" || band === impact) && (filter === "all" || (filter === "unresolved" ? latest !== "passed" : latest === filter)) &&
@@ -990,7 +997,7 @@ class HostCompliance {
       row.append(title);
       row.append(this.node("td", "", control.impact == null ? "Unknown" : String(control.impact)));
       if (assessmentOnly) {
-        const latest = control.after && control.after !== "unassessed" ? control.after : control.before || "unassessed";
+        const latest = control[assessmentPhase] || "unassessed";
         row.append(this.node("td", `compliance-outcome-${latest}`, latest.replaceAll("_", " ")));
       } else {
         for (const phase of ["before", "after"]) row.append(this.node("td", `compliance-outcome-${control[phase]}`, (control[phase] || "unassessed").replaceAll("_", " ")));
@@ -1059,11 +1066,14 @@ class HostCompliance {
     mapping.append(this.node("h4", "", "Remediation mapping"), this.node("p", "", control.remediation));
     const assessmentOnly = this.savedRun?.request.action === "assess";
     const sections = assessmentOnly ? [] : [mapping];
-    const phases = assessmentOnly ? [control.after && control.after.status !== "unassessed" ? "after" : "before"] : ["before", "after"];
+    const current = this.assessmentPhase(this.savedRun);
+    const phases = assessmentOnly ? [current] : ["before", "after"];
+    if (assessmentOnly && current === "after" && this.savedRun.before) phases.push("before");
     for (const phase of phases) {
       const data = control[phase];
       const section = this.node("section", "compliance-control-phase", "");
-      section.append(this.node("h4", "", `${assessmentOnly ? "Result" : phase === "before" ? "Before" : "After"}: ${data.status.replaceAll("_", " ")}`));
+      const label = assessmentOnly ? (phase === current ? "Result" : "Previous") : phase === "before" ? "Before" : "After";
+      section.append(this.node("h4", "", `${label}: ${data.status.replaceAll("_", " ")}`));
       if (data.description) section.append(this.node("p", "", data.description));
       if (data.rationale) section.append(this.node("p", "", `Rationale: ${data.rationale}`));
       if (data.detail) section.append(this.node("p", "", data.detail));
