@@ -105,7 +105,7 @@ class HostCompliance {
     for (const format of ["html", "json"]) this.el(`compliance-export-${format}`).addEventListener("click", () => this.exportReport(format));
     this.el("compliance-history-refresh").addEventListener("click", () => this.refreshHistory());
     this.el("compliance-reassess").addEventListener("click", () => this.restoreSettings(this.savedRun, true));
-    this.el("compliance-result-preview").addEventListener("click", () => this.previewSavedRun(this.savedRun));
+    this.el("compliance-result-preview").addEventListener("click", () => this.reviewFixes(this.savedRun));
     this.el("compliance-review-apply").addEventListener("click", () => this.reviewPreview(this.savedRun));
     this.form.addEventListener("submit", event => event.preventDefault());
     this.el("compliance-scap-inspect").addEventListener("click", () => this.inspectDatastream());
@@ -170,6 +170,7 @@ class HostCompliance {
     this.el("compliance-welcome").addEventListener("click", () => this.inventory.showView("compliance"));
     this.el("compliance-open-conversation").addEventListener("click", () => this.inventory.showView("conversation"));
     this.builder = new ComplianceProfileBuilder(this);
+    this.fixes = new ComplianceFixLibrary(this);
     this.el("compliance-auto").addEventListener("click", () => this.selectLocalChoice("auto"));
     this.projects = new ComplianceProjects(this);
     this.renderBaselines();
@@ -204,6 +205,7 @@ class HostCompliance {
     this.el("compliance-profile-source").value = "all";
     this.projects.reset();
     this.builder.reset();
+    this.fixes.reset();
     this.recommendation = null;
     this.el("compliance-auto-goal").value = "hardening";
     this.el("compliance-control-impact").value = "all";
@@ -643,6 +645,12 @@ class HostCompliance {
     return ["automation_profile", "playbook", "host_alias"].every(name => this.fieldComplete(name));
   }
 
+  reviewFixes(record) {
+    if (!this.hasFailedChecks(record)) return;
+    if (this.canPreviewFixes(record)) this.previewSavedRun(record);
+    else this.fixes.reviewAssessment(record);
+  }
+
   updateFixActions() {
     const record = this.savedRun;
     const scan = record?.request.scan;
@@ -657,9 +665,10 @@ class HostCompliance {
     preview.disabled = !this.inventory.canWrite() || !available || !!this.readiness.blockers.length;
     const resultPreview = this.el("compliance-result-preview");
     const canPreview = this.canPreviewFixes(record);
-    resultPreview.hidden = !canPreview || record.status === "previewed" ||
+    resultPreview.textContent = canPreview ? "Preview fixes" : "Review fixes";
+    resultPreview.hidden = !this.hasFailedChecks(record) || record.status === "previewed" ||
       (this.el("compliance-setup").open && available);
-    resultPreview.disabled = !this.inventory.canWrite() || !!this.readiness.blockers.length;
+    resultPreview.disabled = !this.inventory.connected || (canPreview && (!this.inventory.canWrite() || !!this.readiness.blockers.length));
     this.el("compliance-preview-warning").hidden = preview.hidden;
     const checkMode = canPreview;
     this.el("compliance-result-preview-warning").hidden = resultPreview.hidden || !checkMode;
@@ -692,6 +701,7 @@ class HostCompliance {
     this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !!this.pendingAssessment;
     this.projects.render();
     this.builder.render();
+    if (this.fixes.dialog.open) this.fixes.render();
     this.el("compliance-auto").disabled = !writable;
     this.el("compliance-auto-goal").disabled = !writable;
     this.el("compliance-host").disabled = !writable || !this.host();
@@ -965,6 +975,8 @@ class HostCompliance {
       card.summary.append(warning);
       preview.setAttribute("aria-describedby", warning.id);
       card.controls.append(preview);
+    } else if (card.action === "assess" && this.hasFailedChecks(record)) {
+      card.controls.append(this.cardButton(card, "Review fixes", () => this.reviewFixes(record)));
     }
     if (card.action === "preview" && record.status === "previewed") {
       this.previewCards.set(record.id, card);
@@ -1400,6 +1412,10 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    if (["compliance.fixes", "compliance.fix.import", "compliance.fix.review", "compliance.fix.plan"].includes(type)) {
+      this.fixes.handle(type, payload);
+      return;
+    }
     if (type === "compliance.custom.save") {
       this.builder.handle(payload);
       return;
@@ -1934,6 +1950,7 @@ class HostCompliance {
   }
 
   disconnected() {
+    this.fixes.reset();
     const detail = "Connection lost. Resume the engagement to review saved results.";
     if (this.run && this.run.action !== "assess") this.finishWorkflowCard(this.run.card, detail);
     this.finishAssessmentCard(detail);

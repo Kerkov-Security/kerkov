@@ -23,6 +23,7 @@ from kerkov.core.compliance.review import (
     ReviewEvidence,
     browse_controls,
     export_report,
+    plan_fixes,
     review_control,
 )
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
@@ -281,6 +282,8 @@ async def read_compliance_details(
                 "ansible_available": ansible_binary() is not None,
             }
         record = WorkflowStore(workspace).load(content.get("run_id", ""))
+        if event_type == "compliance.fix.plan":
+            return plan_fixes(workspace, record, evidence=evidence)
         if event_type == "compliance.controls":
             return browse_controls(
                 workspace,

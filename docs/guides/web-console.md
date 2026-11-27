@@ -422,6 +422,22 @@ port they assessed.
 Available settings do not confirm access: the workflow checks the connection when
 it runs.
 
+#### Import community fixes
+
+Open **Community fixes** from the profile picker. Search by platform,
+benchmark, or publisher, and filter by benchmark family or local availability.
+**Import** caches the pinned source and immediately shows its entry
+point, hashes, and source preview. Imported items can be reopened with
+**Review playbook**.
+
+For assessments with failed checks and no configured remediation, **Review fixes**
+opens Conversation directly with the failed checks ranked by impact, assessment
+errors, and any available publisher guidance. If the assessment has a related
+community playbook, Kerkov imports it if needed and opens its source on the same
+card. Community imports are whole roles
+or profile-wide playbooks. Review the benchmark revision, role variables, and
+required collections before considering a separately approved Ansible run.
+
 #### Build your own profile
 
 Select **New profile**, name it, and add the checks you want to run. The builder

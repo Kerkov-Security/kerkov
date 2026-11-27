@@ -208,6 +208,25 @@ Locate all built-in paths from the installed package:
 uv run python -c 'from kerkov.core.compliance.baselines import builtin_baselines; print(builtin_baselines())'
 ```
 
+### Community remediation library
+
+The GUI library imports pinned DevSec roles for Linux, SSH, and NGINX,
+Ansible-Lockdown roles for Ubuntu 22.04 and 24.04 and RHEL 8 and 9 STIG,
+and ComplianceAsCode PCI DSS playbooks for RHEL 8, 9, and 10. It groups entries
+by benchmark family and identifies the platform, release, and breadth of each
+import. **Review fixes** opens a read-only Conversation review from the saved
+assessment. When a related community playbook is available, Kerkov imports it
+if needed and shows the verified source on the same card.
+
+GitHub role imports are cached beneath `COMPLIANCE_PROJECTS_DIR/fixes/`
+and use the same bounded archive extraction as community assessment profiles.
+The import creates an Ansible playbook entry point with its local role or collection.
+The library verifies the cached bundle before opening its playbook. PCI DSS
+playbooks share the pinned SCAP release cache and are verified against their
+published-release content digests. Imports write local files. Role variables,
+external collection dependencies, and all target execution are reviewed
+separately through the Ansible workflow.
+
 ### Custom profiles from the web console
 
 **New profile** on the Compliance screen builds an assessment from file,

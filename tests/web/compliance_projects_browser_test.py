@@ -323,6 +323,128 @@ def test_auto_recommends_a_verified_platform_and_waits_for_review(dashboard: Pag
     assert request["remediation"] is None
 
 
+def _mock_pci_playbook():
+    return {
+        "id": "pci-dss-rhel9",
+        "name": "PCI DSS v4.0.1 · RHEL 9",
+        "publisher": "ComplianceAsCode",
+        "platform": "RHEL 9",
+        "scope": "Whole profile",
+        "version": "0.1.82",
+        "revision": "b" * 64,
+        "url": "https://github.com/ComplianceAsCode/content/releases/tag/v0.1.82",
+        "note": "Review the profile wide playbook.",
+        "playbook": "/cache/rhel9-playbook-pci-dss.yml",
+        "playbook_sha256": "c" * 64,
+        "preview": "hosts: all",
+        "preview_truncated": True,
+    }
+
+
+def test_community_fix_library_import_opens_verified_review(dashboard: Page):
+    page = dashboard
+    page.set_viewport_size({"width": 390, "height": 1000})
+    open_compliance(page)
+    page.get_by_role("button", name="Community fixes", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Community fixes")
+    _reply(page, "compliance.fixes", available=[])
+    dialog.get_by_label("Benchmark family").select_option("PCI DSS")
+    dialog.get_by_label("Search fixes").fill("rhel 9")
+    fix = dialog.get_by_role("article", name="PCI DSS v4.0.1 · RHEL 9")
+    expect(fix).to_contain_text("Whole profile")
+    expect(dialog.get_by_role("article")).to_have_count(1)
+    fix.get_by_role("button", name="Import", exact=True).click()
+    assert last_request(page, "compliance.fix.import")["fix_id"] == "pci-dss-rhel9"
+    _reply(
+        page,
+        "compliance.fix.import",
+        available=["pci-dss-rhel9"],
+        fix=_mock_pci_playbook(),
+    )
+    expect(dialog.get_by_label("Playbook source")).to_have_text("hosts: all")
+    expect(dialog.get_by_text("Playbook SHA-256")).to_be_visible()
+    assert sent(page, "compliance.fix.review") == []
+    assert sent(page, "compliance.run") == []
+    assert sent(page, "user.message") == []
+
+    dialog.get_by_role("button", name="Back to fixes").click()
+    dialog.get_by_label("Show").select_option("imported")
+    fix.get_by_role("button", name="Review playbook").click()
+    _reply(
+        page,
+        "compliance.fix.review",
+        detail="The saved playbook changed. Import the source again.",
+    )
+    expect(dialog.get_by_label("Show")).to_have_value("all")
+    expect(fix.get_by_role("button", name="Import", exact=True)).to_be_enabled()
+
+
+@pytest.mark.parametrize("related", [False, True])
+def test_failed_community_scan_opens_evidence_review_directly(dashboard: Page, related):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = show_failed_assessment(page)
+    record["label"] = "PCI DSS" if related else "CIS Linux"
+    record["request"]["baseline_id"] = None
+    record["request"]["scap_preset_id"] = (
+        "pci-dss-rhel9-ssg-0.1.82" if related else None
+    )
+    record["request"]["scan"]["profile"] = "local-profile"
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
+    )
+    page.get_by_role("button", name="Review fixes", exact=True).click()
+    card = page.get_by_role("article", name="Compliance fix review")
+    expect(card).to_contain_text("example.com:2222")
+    expect(page.locator("#conversation-view")).to_be_visible()
+    request = last_request(page, "compliance.fix.plan")
+    assert request["run_id"] == record["id"]
+    _reply(
+        page,
+        "compliance.fix.plan",
+        run_id=record["id"],
+        failed=86,
+        errors=24,
+        checks=[
+            {
+                "title": "Protect a file",
+                "control_id": "rule-1",
+                "impact": 0.8,
+                "guidance": "Use the publisher’s guidance.",
+                "publisher_fix": True,
+            }
+        ],
+    )
+    expect(card).to_contain_text("86 failed checks · 24 assessment errors")
+    expect(card).to_contain_text("Protect a file")
+    card.get_by_text("Publisher remediation guidance").click()
+    expect(card.get_by_text("Use the publisher’s guidance.")).to_be_visible()
+    retry = card.get_by_role("button", name="Retry playbook")
+    if related:
+        assert last_request(page, "compliance.fix.import")["fix_id"] == "pci-dss-rhel9"
+        expect(retry).to_be_hidden()
+        _reply(page, "compliance.fix.import", detail="The download failed. Try again.")
+        expect(retry).to_be_visible()
+        retry.click()
+        assert len(sent(page, "compliance.fix.import")) == 2
+        _reply(
+            page,
+            "compliance.fix.import",
+            available=["pci-dss-rhel9"],
+            fix=_mock_pci_playbook(),
+        )
+        expect(card.get_by_text("Playbook source")).to_be_visible()
+        expect(page.get_by_role("dialog", name="Community fixes")).to_be_hidden()
+    else:
+        expect(retry).to_have_count(0)
+        assert sent(page, "compliance.fix.import") == []
+        expect(card).to_contain_text("This profile has no paired playbook")
+    assert sent(page, "compliance.run") == []
+    assert sent(page, "user.message") == []
+    expect(card.get_by_role("button", name="Apply fixes")).to_have_count(0)
+
+
 @pytest.mark.parametrize("outcome", ["denied", "stopped", "replaced"])
 def test_community_scan_stops_when_approved_preparation_cannot_be_used(
     dashboard, outcome
