@@ -1,10 +1,11 @@
 /* The engagement ledger is authoritative; resource values are always plain text. */
 class InventoryPanel {
-  constructor({ send, requestId, useInConversation, startWorkflow, onPendingChange, onViewChange, onSnapshot = () => {}, onStatus = () => {} }) {
+  constructor({ send, requestId, useInConversation, startWorkflow, appendComplianceCard, onPendingChange, onViewChange, onSnapshot = () => {}, onStatus = () => {} }) {
     this.send = send;
     this.requestId = requestId;
     this.useInConversation = useInConversation;
     this.startWorkflow = startWorkflow;
+    this.appendComplianceCard = appendComplianceCard;
     this.onPendingChange = onPendingChange;
     this.onViewChange = onViewChange;
     this.onSnapshot = onSnapshot;
@@ -153,8 +154,9 @@ class InventoryPanel {
       this.refreshAgain = false;
       this.evidenceRequest = null;
       if (this.pendingSave) {
+        const { onError } = this.pendingSave;
         this.pendingSave = null;
-        this.formError("Disconnected before the save was confirmed. Check the saved resource when you reopen the engagement.");
+        onError("Disconnected before the save was confirmed. Check the saved resource when you reopen the engagement.");
         this.onPendingChange();
       }
       this.setText("inventory-status", "Disconnected. Showing the last received inventory.");
@@ -199,8 +201,9 @@ class InventoryPanel {
     } else if (type === "inventory.error") {
       if (payload.context_id && payload.context_id !== this.contextId && this.contextId !== null) return;
       if (payload.request_id === this.pendingSave?.id) {
+        const { onError } = this.pendingSave;
         this.finishSave();
-        this.formError(payload.detail || "The resource could not be saved.");
+        onError(payload.detail || "The resource could not be saved.");
         this.refresh();
       } else if (payload.request_id === this.evidenceRequest?.id) {
         this.evidenceRequest = null;
@@ -235,7 +238,8 @@ class InventoryPanel {
     if (typeof payload.context_id !== "string" || !Array.isArray(payload.entries)
         || this.retiredContexts.has(payload.context_id)) return;
     const isList = payload.request_id === this.listRequest && this.listRequest !== null;
-    const isSave = payload.request_id === this.pendingSave?.id;
+    const save = payload.request_id === this.pendingSave?.id ? this.pendingSave : null;
+    const isSave = save !== null;
     if (!isList && !isSave && payload.request_id !== "") return;
     if (this.contextId && this.contextId !== payload.context_id) this.reset();
     this.contextId = payload.context_id;
@@ -247,7 +251,7 @@ class InventoryPanel {
     ).map((item) => [item.id, item]));
     if (isSave) {
       this.selectedId = this.pendingSave.entryId || this.selectedId;
-      this.editing = null;
+      if (save.closeForm) this.editing = null;
       this.finishSave();
       this.setText("inventory-status", "Resource saved to this engagement.");
     } else {
@@ -257,11 +261,12 @@ class InventoryPanel {
     this.renderRows();
     this.renderDetails();
     this.renderControls();
-    if (isSave) (this.rows.get(this.selectedId) || this.el("inventory-add")).focus();
+    if (save?.closeForm && this.view === "inventory") (this.rows.get(this.selectedId) || this.el("inventory-add")).focus();
     if (isList) this.finishList();
     this.onSnapshot(payload);
     this.profile.snapshot();
     this.compliance.snapshot();
+    if (save?.entryId) save.onSaved?.(save.entryId);
   }
 
   reset() {
@@ -423,12 +428,12 @@ class InventoryPanel {
     this.renderControls();
   }
 
-  openForm(entry = null) {
+  openForm(entry = null, { section = "targets", kind = "url", onSaved = null } = {}) {
     if (!this.canWrite()) return;
     this.profile.close(false);
-    this.editing = { entryId: entry?.id ?? null, updatedAt: entry?.updated_at ?? null };
-    this.el("inventory-role").value = entry?.section || "targets";
-    this.el("inventory-kind").value = entry?.entry.kind || "url";
+    this.editing = { entryId: entry?.id ?? null, updatedAt: entry?.updated_at ?? null, onSaved };
+    this.el("inventory-role").value = entry?.section || section;
+    this.el("inventory-kind").value = entry?.entry.kind || kind;
     this.el("inventory-value").value = entry?.entry.value || "";
     this.el("inventory-name").value = entry?.entry.name || "";
     for (const field of ["environment", "tags", "notes"]) {
@@ -478,23 +483,33 @@ class InventoryPanel {
     }
     if (tags.length) resource.tags = tags;
     if (!resource.value) { this.formError("Enter a resource value."); return; }
+    this.el("inventory-form-error").hidden = true;
+    this.saveEntry(this.el("inventory-role").value, resource, {
+      ...this.editing, closeForm: true, onError: detail => this.formError(detail),
+    });
+  }
+
+  saveEntry(section, resource, { entryId = null, updatedAt = null, closeForm = false, onSaved, onError }) {
+    if (!this.canWrite()) {
+      onError("Wait for Kerkov to finish the current activity before saving a host.");
+      return;
+    }
     const id = this.requestId();
     const request = { type: "inventory.save", request_id: id, context_id: this.contextId,
-      entry_id: this.editing.entryId, section: this.el("inventory-role").value, resource };
-    if (this.editing.entryId !== null) request.expected_updated_at = this.editing.updatedAt;
-    this.el("inventory-form-error").hidden = true;
-    this.pendingSave = { id, entryId: this.editing.entryId };
+      entry_id: entryId, section, resource };
+    if (entryId !== null) request.expected_updated_at = updatedAt;
+    this.pendingSave = { id, entryId, closeForm, onSaved, onError };
     this.renderControls();
     this.onPendingChange();
     if (!this.send(request)) {
       this.finishSave();
-      this.formError("Unable to send the save request. Your draft is still here.");
+      onError("Unable to send the save request. Try again when connected.");
       return;
     }
     this.saveTimer = window.setTimeout(() => {
       if (this.pendingSave?.id !== id) return;
       this.finishSave();
-      this.formError("Save confirmation did not arrive. Check the inventory before trying again.");
+      onError("Save confirmation did not arrive. Check the inventory before trying again.");
       this.refresh();
     }, 15000);
   }

@@ -182,7 +182,11 @@ session-wide teardown behavior.
 `compliance.run` uses the same admission, interrupt, approval and engine lifecycle
 as a conversation turn. `web/runtime/compliance.py` binds the session to the
 front-end-neutral `ComplianceRun` described in [workflows](workflows.md), and the
-workflow's objective overlay rides along as a transient prompt. Its output is wrapped in `compliance.event` for the panel;
+workflow's objective overlay rides along as a transient prompt. The server wraps
+its output in `compliance.event`. Assessment, preview and apply use Conversation
+for live output and approvals. Preview and remediation cards use the saved
+Ansible recap for task names and counts, with links to evidence in Compliance.
+Apply submits the exact saved preview ID and request settings.
 `user.message.stop` stops it using the same message ID. Saved `context_only`
 messages remain in provider context but are excluded from visible chat, including
 after compaction and resume. See [context and compaction](context-and-compaction.md).
@@ -194,10 +198,13 @@ refresh. The runtime executes one `compliance_profile` call through the shared
 approval strategy and tool executor. It emits activity through
 `compliance.event` and bypasses the model turn, transcript and knowledge base.
 
-Saved control reviews and report exports run one at a time per connection.
-They verify each evidence file against its saved SHA-256 and reuse parsed
-evidence for up to two reports. Approval responses and Stop remain available
-while evidence is processed. A response from a retired engagement is discarded.
+Local datastream inspection, saved control reviews and report exports share a
+single read slot per connection. Inspection computes the digest and reads the
+default checklist's profile metadata without SSH or a model turn. Control
+reviews and exports verify each evidence file against its saved SHA-256 and reuse
+parsed evidence for up to two reports. Approval responses and Stop remain
+available while reads are processed. A response from a retired engagement is
+discarded.
 
 On load, missing tool results receive synthesized outcomes that explicitly say
 execution is unknown. This repairs interrupted tool batches for provider replay
