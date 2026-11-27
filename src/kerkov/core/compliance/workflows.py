@@ -10,7 +10,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,6 +38,10 @@ class WorkflowRequest(BaseModel):
     bootstrap_python: bool = False
     preview_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     assessment_of: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    scap_fixes_of: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    scap_rule_ids: (
+        list[Annotated[str, Field(pattern=r"^[A-Za-z0-9_.:-]{1,512}$")]] | None
+    ) = Field(default=None, min_length=1, max_length=2048)
 
     def scan_settings(self) -> dict[str, Any]:
         settings = self.scan.model_dump(exclude={"timeout_seconds", "max_controls"})
@@ -50,6 +54,8 @@ class WorkflowRequest(BaseModel):
         for key in (
             "scap_preset_id",
             "custom_profile",
+            "scap_fixes_of",
+            "scap_rule_ids",
         ):
             if data[key] is None:
                 data.pop(key)

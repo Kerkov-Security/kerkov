@@ -438,6 +438,22 @@ card. Community imports are whole roles
 or profile-wide playbooks. Review the benchmark revision, role variables, and
 required collections before considering a separately approved Ansible run.
 
+The catalog PCI DSS profiles for RHEL 8, 9, and 10 also offer **Preview fixes**
+directly on a saved assessment. **Auto fixes** previews the eligible failed
+checks using tasks from the pinned playbook. Kerkov generates a per-run playbook
+that keeps the publisher's package and service fact-gathering tasks in their
+original order. Expand **Choose fixes** to preview a subset. Conversation shows
+the planned tasks and checks that need manual review. The plan lists pinned
+Ansible modules when selected fixes use them. Kerkov downloads and verifies
+those modules on the controller the first time it needs them. Preview reads the
+saved evidence without running tasks on the host.
+
+Choose **Apply fixes** on the preview card to start the reviewed workflow.
+Kerkov rechecks the same SSH endpoint and confirms the selected checks still
+fail before Ansible runs under the current approval mode. It then reassesses
+with the same datastream. Fixes that would disable the active root SSH login,
+require unreviewed modules, or lack a matching rule stay in manual review.
+
 #### Build your own profile
 
 Select **New profile**, name it, and add the checks you want to run. The builder

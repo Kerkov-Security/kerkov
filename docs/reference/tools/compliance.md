@@ -227,6 +227,15 @@ published-release content digests. Imports write local files. Role variables,
 external collection dependencies, and all target execution are reviewed
 separately through the Ansible workflow.
 
+For PCI DSS **Preview fixes**, Kerkov includes the pinned
+[community.general.ini_file](https://github.com/ansible-collections/community.general/blob/049524674b13ad9782849c427266935c8ec61954/plugins/modules/ini_file.py)
+and [ansible.posix.sysctl](https://github.com/ansible-collections/ansible.posix/blob/e54b8bf68f583f2324861a8cb113d4f1bb20f3de/plugins/modules/sysctl.py)
+modules when the selected checks need them. The controller caches their
+verified contents under COMPLIANCE_PROJECTS_DIR and copies only the needed
+modules alongside the generated playbook. Their SHA-256 digests are bound to the
+preview and rechecked before approved remediation. This keeps the upstream
+playbook intact and leaves the controller's installed collections alone.
+
 ### Custom profiles from the web console
 
 **New profile** on the Compliance screen builds an assessment from file,

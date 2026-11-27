@@ -18,6 +18,7 @@ from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.custom_profiles import CustomProfile, CustomProfileStore
 from kerkov.core.compliance.recommendation import OS_RELEASE_PROBE
 from kerkov.core.compliance.scap_catalog import ScapPreset
+from kerkov.core.compliance.scap_modules import SCAP_MODULES, ScapModule
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
@@ -359,6 +360,228 @@ async def test_pci_catalog_plan_matches_pin_and_reuses_saved_snapshot(tmp_path):
         assert Path(retry.scan["profile"]).read_bytes() == raw
         prepare.assert_awaited_once()
         await retry.flush()
+
+
+@pytest.mark.asyncio
+async def test_pci_saved_preview_binds_selected_tasks_and_verifies_after_apply(
+    tmp_path, monkeypatch
+):
+    session = _create_mock_session(tmp_path)
+    fixture = Path(__file__).parents[1] / "core/compliance/fixtures"
+    pci_profile = ScapPreset(9, "0" * 64).settings()["profile_id"]
+    source = tmp_path / "ssg-rhel9-ds.xml"
+    raw = (
+        (fixture / "openscap-datastream.xml")
+        .read_bytes()
+        .replace(b"xccdf_example_profile_server", pci_profile.encode())
+    )
+    source.write_bytes(raw)
+    preset = ScapPreset(9, hashlib.sha256(raw).hexdigest())
+    request = _create_mock_request(
+        tmp_path, action="assess", baseline_id=None
+    ).model_dump()
+    request["scap_preset_id"] = preset.id
+    request["scan"].update(profile=preset.filename, openscap=preset.settings())
+    rule = "xccdf_org.ssgproject.content_rule_accounts_users_own_home_directories"
+    module = "community.general.ini_file"
+    module_bytes = b"# fixture module"
+    module_sha256 = hashlib.sha256(module_bytes).hexdigest()
+    monkeypatch.setitem(
+        SCAP_MODULES, module, ScapModule("1.0.0", "a" * 40, module_sha256)
+    )
+    cache = Path(session.config.compliance_projects_dir) / "scap/remediation-modules"
+    cache.mkdir(parents=True)
+    (cache / f"{module_sha256}.py").write_bytes(module_bytes)
+    signed_tasks = b"""
+- name: Pinned PCI fixture
+  hosts: all
+  vars: {}
+  tasks:
+    - name: Gather package facts before the rule
+      ansible.builtin.package_facts:
+        manager: auto
+      tags: [always]
+    - name: Fix the matching rule
+      tags: [accounts_users_own_home_directories]
+      block:
+        - name: Write approved setting
+          community.general.ini_file:
+            path: /fixture
+            section: review
+            option: enabled
+            value: "true"
+    - name: Leave unrelated rule alone
+      ansible.builtin.file:
+        path: /unrelated
+        state: directory
+      tags: [unrelated_rule]
+    - name: Gather package facts after the rule
+      ansible.builtin.package_facts:
+        manager: auto
+      tags: [always]
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+      tags: [always]
+"""
+    source_evidence = tmp_path / "artifacts/compliance/source.xml"
+    source_evidence.parent.mkdir(parents=True)
+    evidence = (
+        (fixture / "openscap-arf.xml")
+        .read_bytes()
+        .replace(b"xccdf_org.ssgproject.content_profile_standard", pci_profile.encode())
+    )
+    evidence = evidence.replace(b"<result>pass", b"<result>fail")
+    source_evidence.write_bytes(evidence)
+    assessment = {
+        "engine": "openscap",
+        "evidence_status": "scanned",
+        "profile_name": pci_profile,
+        "profile_sha256": preset.sha256,
+        "report_artifact": str(source_evidence),
+        "report_sha256": hashlib.sha256(evidence).hexdigest(),
+        "target": {"host": "192.0.2.1", "user": "root", "port": 22},
+        "sudo": True,
+        "control_count": 1,
+        "counts": {
+            "passed": 0,
+            "failed": 1,
+            "error": 0,
+            "skipped": 0,
+            "waived": 0,
+            "no_tests": 0,
+        },
+        "has_inconclusive_results": False,
+        "xccdf_counts": {"fail": 1},
+    }
+    with (
+        patch("kerkov.core.workflows.compliance.scap_preset", return_value=preset),
+        patch(
+            "kerkov.core.workflows.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.prepare_scap_preset",
+            new=AsyncMock(return_value=source),
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.prepare_scap_playbook",
+            new=AsyncMock(return_value=source),
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.read_scap_playbook",
+            return_value=signed_tasks,
+        ),
+    ):
+        scan = build_run(session, request, "scan")
+        await scan.prepare()
+        scan.record.update(status="attention", before=assessment)
+        scan.publish()
+        await scan.flush()
+
+        preview_request = {
+            **request,
+            "action": "preview",
+            "scap_fixes_of": scan.record["id"],
+            "scap_rule_ids": [rule],
+        }
+        preview = build_run(session, preview_request, "preview")
+        await preview.prepare()
+        await preview.finish(EventInterrupt())
+        assert preview.record["status"] == "previewed"
+        assert preview.assessment_count == 0 and preview.record["remediation"] is None
+        assert preview.record["plan"]["scap_fixes"]["selected"] == [rule]
+        assert preview.record["plan"]["scap_fixes"]["modules"] == {
+            module: {"version": "1.0.0", "sha256": module_sha256}
+        }
+        playbook = Path(preview.remediation["playbook"]).read_text()
+        assert "hosts: selected_asset" in playbook
+        assert (
+            playbook.index("Gather package facts before the rule")
+            < playbook.index("Fix the matching rule")
+            < playbook.index("Gather package facts after the rule")
+            < playbook.index("Gather service facts")
+        )
+        assert preview.record["plan"]["scap_fixes"]["task_count"] == 4
+        assert "Leave unrelated rule alone" not in playbook
+        session.approval_strategy.approve.assert_not_awaited()
+
+        apply_request = {
+            **preview_request,
+            "action": "apply",
+            "preview_id": preview.record["id"],
+        }
+        with pytest.raises(ValueError, match="preview does not match"):
+            await build_run(
+                session, {**apply_request, "scap_rule_ids": None}, "different"
+            ).prepare()
+        apply = build_run(session, apply_request, "apply")
+        await apply.prepare()
+        assert apply.remediation["check"] is False
+
+        scanner = SimpleNamespace(name="compliance_scan")
+        ansible = SimpleNamespace(name="ansible")
+        assert not (await apply.approve(ansible, apply.remediation)).approved
+        params = {k: v for k, v in apply.scan.items() if v is not None}
+        assert (await apply.approve(scanner, params)).approved
+        apply.result(
+            "compliance_scan",
+            ToolResult(
+                success=True,
+                output=json.dumps(assessment),
+                metadata={"status": "completed"},
+            ),
+        )
+        assert (await apply.approve(ansible, apply.remediation)).approved
+        apply.result("ansible", ToolResult(success=True, output=""))
+        assert (await apply.approve(scanner, params)).approved
+        apply.result(
+            "compliance_scan",
+            ToolResult(
+                success=True,
+                output=json.dumps(
+                    {
+                        **assessment,
+                        "counts": {**assessment["counts"], "passed": 1, "failed": 0},
+                        "xccdf_counts": {"pass": 1},
+                    }
+                ),
+                metadata={"status": "completed"},
+            ),
+        )
+        await apply.finish(EventInterrupt())
+        assert apply.record["status"] == "verified"
+
+        tampered = build_run(session, apply_request, "tampered")
+        await tampered.prepare()
+        tampered_scan = {k: v for k, v in tampered.scan.items() if v is not None}
+        assert (await tampered.approve(scanner, tampered_scan)).approved
+        tampered.result(
+            "compliance_scan",
+            ToolResult(
+                success=True,
+                output=json.dumps(assessment),
+                metadata={"status": "completed"},
+            ),
+        )
+        local_module = (
+            Path(tampered.remediation["playbook"]).parent
+            / "collections/ansible_collections/community/general/plugins/modules/ini_file.py"
+        )
+        local_module.write_text("# changed module")
+        assert not (await tampered.approve(ansible, tampered.remediation)).approved
+
+        stale = build_run(session, apply_request, "stale")
+        await stale.prepare()
+        source_evidence.write_bytes(evidence.replace(b"<result>fail", b"<result>pass"))
+        stale.record["before"] = {
+            **assessment,
+            "report_sha256": hashlib.sha256(source_evidence.read_bytes()).hexdigest(),
+        }
+        denied = await stale.approve(ansible, stale.remediation)
+        assert not denied.approved
+        assert "findings" in denied.user_message
+        await stale.finish(EventInterrupt())
+        assert stale.record["status"] == "blocked"
 
 
 @pytest.mark.asyncio

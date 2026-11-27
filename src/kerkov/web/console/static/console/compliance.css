@@ -272,3 +272,8 @@ button.compliance-metric[aria-pressed="true"] { background: var(--bg); border-co
 
 .compliance-fix-guidance { white-space: pre-wrap; overflow-wrap: anywhere; }
 .compliance-fix-source { max-height: 15rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.compliance-fix-scroll { max-height: 18rem; overflow: auto; }
+.compliance-fix-picker { margin: 8px 0; padding: 8px; border: 1px solid var(--line); border-radius: 5px; }
+.compliance-fix-picker label { display: flex; align-items: start; gap: 8px; margin: 5px 0; }
+.compliance-fix-picker input { flex: 0 0 auto; }

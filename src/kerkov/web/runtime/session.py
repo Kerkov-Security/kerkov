@@ -537,6 +537,8 @@ class WebKerkovSession:
                     self.compliance_run = run
                     run.publish()
                     await run.prepare(active_interrupt)
+                    if run.saved_evidence_preview:
+                        return
                     message = run.plan_message()
                     overlay = [COMPLIANCE_WORKFLOW.overlay]
                     preparing_workflow = False
