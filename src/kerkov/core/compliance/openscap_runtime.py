@@ -35,8 +35,8 @@ class OpenScapSettings(BaseModel):
         description="Exact target Ansible distribution fact, such as Ubuntu or RedHat.",
     )
     version: str = Field(
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
-        description="Exact target Ansible distribution_version fact, such as 24.04.",
+        pattern=r"^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[0-9]{1,3}\.\*)$",
+        description="Exact target Ansible distribution_version fact, such as 24.04, or a major release such as 9.*.",
     )
     profile_id: str = Field(
         pattern=PROFILE_ID_PATTERN,
@@ -101,6 +101,14 @@ def _prepare(
     }
 
 
+def _matches_version(observed: Any, expected: str) -> bool:
+    if not isinstance(observed, str) or not observed:
+        return False
+    if expected.endswith(".*"):
+        return observed.partition(".")[0] == expected[:-2]
+    return observed == expected
+
+
 def _collect(
     workspace: Path,
     params: ComplianceScanParams,
@@ -112,13 +120,13 @@ def _collect(
     manifest = read_document(manifest_path)
     if (
         not isinstance(manifest, dict)
+        or not _matches_version(manifest.get("distribution_version"), settings.version)
         or any(
             manifest.get(key) != expected
             for key, expected in {
                 "inventory_alias": _HOST_ALIAS,
                 "inventory_address": params.host,
                 "distribution": settings.distribution,
-                "distribution_version": settings.version,
                 "content_sha256": settings.sha256,
                 "profile_id": settings.profile_id,
             }.items()
@@ -142,6 +150,10 @@ def _collect(
             if k not in {"counts", "rules", "rules_truncated"}
         },
         **summary,
+        "platform": {
+            "distribution": settings.distribution,
+            "version": manifest["distribution_version"],
+        },
         "scanner_version": str(manifest.get("scanner_version", "")).split("\n", 1)[0][
             :200
         ],

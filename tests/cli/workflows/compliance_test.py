@@ -291,7 +291,7 @@ def test_cancelled_setup_starts_nothing(tmp_path):
     cli = _create_mock_cli(choices=[None])
     text = _handle(cli, "assess", tmp_path)
     assert "Compliance setup cancelled." in text
-    assert "targets Blue; this engagement is in Purple" in text
+    assert "/mode blue" not in text
     cli.run_workflow_turn.assert_not_awaited()
 
 

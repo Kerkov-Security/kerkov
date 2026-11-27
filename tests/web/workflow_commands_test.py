@@ -113,7 +113,7 @@ async def test_clear_ends_the_objective_with_its_engagement(tmp_path: Path) -> N
     try:
         await session.handle_user_message("/workflow ctf start")
         payload = _result(session)
-        assert "ctf targets Red; this engagement is in Purple" in payload["detail"]
+        assert "ctf targets Red. This engagement is in Purple" in payload["detail"]
         await session.handle_user_message("/clear")
         assert session.engagement_store.workflow is None
         await session.handle_user_message("/workflow ctf")
@@ -164,6 +164,6 @@ async def test_list_names_each_workflow_and_its_role(tmp_path: Path) -> None:
     try:
         await session.handle_user_message("/workflow")
         detail = _result(session)["detail"]
-        assert "compliance (Blue)" in detail and "ctf (Red)" in detail
+        assert "compliance (Blue or Purple)" in detail and "ctf (Red)" in detail
     finally:
         session.close()

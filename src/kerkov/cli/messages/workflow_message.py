@@ -60,12 +60,12 @@ class WorkflowMessage(UserMessage):
         table.add_column("Actions")
         table.add_column("Summary", overflow="fold")
         for definition in WORKFLOW_DEFINITIONS:
-            role = definition.mode.value.capitalize()
+            role = definition.mode_label
             table.add_row(
                 definition.name,
                 (
                     role
-                    if definition.mode is current
+                    if current in definition.modes
                     else f"{role} [dim](not active)[/dim]"
                 ),
                 ", ".join(definition.actions),

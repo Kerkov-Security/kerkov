@@ -62,11 +62,11 @@ def test_every_registered_workflow_has_a_terminal_handler():
 
 
 def test_list_names_each_workflow_and_flags_an_inactive_role():
-    text = _run(_create_mock_cli(ModeType.PURPLE), "/workflow")
-    assert "compliance" in text and "Blue (not active)" in text
-    assert "ctf" in text and "Red (not active)" in text
-    text = _run(_create_mock_cli(ModeType.BLUE), "/workflows list")
-    assert "Blue (not active)" not in text and "Red (not active)" in text
+    for mode in (ModeType.PURPLE, ModeType.BLUE):
+        text = _run(_create_mock_cli(mode), "/workflow")
+        assert "compliance" in text and "Blue or Purple" in text
+        assert "Blue or Purple (not active)" not in text
+        assert "ctf" in text and "Red (not active)" in text
 
 
 def test_unknown_workflow_names_the_available_ones():
@@ -156,7 +156,7 @@ def test_ctf_start_records_the_objective_on_the_engagement(tmp_path):
 def test_ctf_start_outside_red_warns_and_proceeds(tmp_path):
     cli = _create_mock_ctf_cli(tmp_path, mode=ModeType.PURPLE)
     text = _run(cli, "/workflow ctf start")
-    assert "ctf targets Red; this engagement is in Purple" in text
+    assert "ctf targets Red. This engagement is in Purple" in text
     assert cli.engagement_store.workflow == "ctf"
 
 

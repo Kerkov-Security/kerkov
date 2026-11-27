@@ -5,9 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from kerkov.core.session.modes import ModeType
 from kerkov.core.workflows.compliance import controller_blockers
-from kerkov.core.workflows.registry import COMPLIANCE_WORKFLOW, mode_mismatch_notice
 from kerkov.web.runtime.compliance import WebWorkflowObserver
 from kerkov.web.runtime.events import WebEventBus
 from kerkov.web.runtime.session import WebKerkovSession
@@ -33,9 +31,7 @@ async def test_ready_and_mode_switch_carry_the_server_preconditions(
         assert any("EXECUTION_ENABLED" in b for b in ready["blockers"]) is (
             not execution_enabled
         )
-        assert ready["mode_notice"] == mode_mismatch_notice(
-            COMPLIANCE_WORKFLOW, ModeType.PURPLE
-        )
+        assert ready["mode_notice"] is None
 
         await session.handle_user_message("/mode blue")
         changed = _payload(bus.drain_nowait(), "mode.changed")["compliance"]
