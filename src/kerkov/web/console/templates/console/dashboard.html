@@ -14,12 +14,13 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=15">
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=16">
     <script src="{% static 'console/compliance-projects.js' %}?v=6" defer></script>
     <script src="{% static 'console/compliance-builder.js' %}?v=1" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=27" defer></script>
+    <script src="{% static 'console/compliance-fixes.js' %}?v=1" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=28" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=13" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=14" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
@@ -34,7 +35,7 @@
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=2">
     <script src="{% static 'console/mcp.js' %}?v=3" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=34" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=35" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -158,6 +159,7 @@
           </section>
           {{ compliance_baselines|json_script:"compliance-baseline-catalog" }}
           {{ compliance_projects|json_script:"compliance-project-catalog" }}
+          {{ compliance_fixes|json_script:"compliance-fix-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
               <h2>Compliance</h2>
@@ -179,6 +181,7 @@
                 <div class="compliance-profile-toolbar">
                   <button type="button" id="compliance-auto" class="inventory-button" aria-pressed="false">Auto assessment</button>
                   <button type="button" id="compliance-new-profile" class="inventory-button">New profile</button>
+                  <button type="button" id="compliance-open-fixes" class="inventory-button">Community fixes</button>
                 </div>
                 <div class="compliance-profile-filters">
                   <label class="sr-only" for="compliance-profile-search">Search profiles</label><input id="compliance-profile-search" type="search" placeholder="Search profiles or platforms">
@@ -302,6 +305,37 @@
               </form>
                 </div>
               </details>
+              <dialog id="compliance-fix-library" class="compliance-profile-builder compliance-fix-library" aria-labelledby="compliance-fix-title">
+                <header class="compliance-fix-header">
+                  <h3 id="compliance-fix-title">Community fixes</h3>
+                  <button type="button" id="compliance-close-fixes" class="inventory-button">Close</button>
+                </header>
+                <div id="compliance-fix-browser">
+                  <div class="compliance-fix-filters">
+                    <label>Search fixes<input id="compliance-fix-search" type="search" maxlength="120" placeholder="Benchmark, platform, or publisher"></label>
+                    <label>Benchmark family<select id="compliance-fix-family">
+                      <option value="all">All families</option><option>Hardening</option><option>DISA STIG</option><option>PCI DSS</option>
+                    </select></label>
+                    <label>Show<select id="compliance-fix-filter">
+                      <option value="all">All sources</option><option value="imported">Available locally</option>
+                    </select></label>
+                  </div>
+                  <div id="compliance-fix-list"></div>
+                </div>
+                <p id="compliance-fix-status" class="compliance-caption" role="status"></p>
+                <section id="compliance-fix-review" hidden aria-labelledby="compliance-fix-review-title">
+                  <div class="compliance-fix-header"><h4 id="compliance-fix-review-title"></h4>
+                    <button type="button" id="compliance-fix-back" class="inventory-button">Back to fixes</button>
+                  </div>
+                  <dl id="compliance-fix-facts"></dl>
+                  <p id="compliance-fix-text" class="compliance-caption"></p>
+                  <pre id="compliance-fix-playbook" tabindex="0" aria-label="Playbook source"></pre>
+                  <details id="compliance-fix-role" hidden>
+                    <summary>Role entry tasks</summary>
+                    <pre id="compliance-fix-role-source" tabindex="0" aria-label="Role entry task source"></pre>
+                  </details>
+                </section>
+              </dialog>
               <dialog id="compliance-profile-builder" class="compliance-profile-builder" aria-labelledby="compliance-builder-title">
                 <form id="compliance-builder-form">
                   <h3 id="compliance-builder-title">New profile</h3>
@@ -323,7 +357,7 @@
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div class="compliance-result-heading">
                   <div><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" hidden>Preview fixes</button><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
+                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
                 </div>
                 <p id="compliance-result-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
                 <p id="compliance-outcome-notice" class="compliance-caption" hidden></p>

@@ -15,6 +15,7 @@ from kerkov.core.compliance.review import (
     browse_controls,
     build_report,
     export_report,
+    plan_fixes,
     review_control,
 )
 from kerkov.core.compliance.workflows import WorkflowRequest, new_record
@@ -121,6 +122,26 @@ def test_review_keeps_assertion_messages_local_and_uses_saved_mapping(tmp_path):
         in review_control(tmp_path, record, "fixture", "skip")["remediation"]
     )
     assert "raw-secret" not in json.dumps(record)
+
+
+def test_fix_plan_uses_original_evidence_and_keeps_errors_separate(tmp_path):
+    source = json.loads((Path(__file__).parent / "fixtures/cinc.json").read_bytes())
+    failed = next(c for c in source["profiles"][0]["controls"] if c["id"] == "fail")
+    failed["descriptions"] = [{"label": "fix", "data": "Use the reviewed file mode."}]
+    record = _create_mock_record(tmp_path, source)
+    plan = plan_fixes(tmp_path, record)
+
+    assert plan["failed"] == 1
+    assert plan["errors"] == 1
+    assert len(plan["checks"]) == 1
+    assert plan["checks"][0]["control_id"] == "fail"
+    assert plan["checks"][0]["guidance"] == "Use the reviewed file mode."
+    assert plan["checks"][0]["publisher_fix"] is True
+    assert "raw-secret" not in json.dumps(plan)
+
+    Path(record["before"]["report_artifact"]).write_text("{}")
+    with pytest.raises(ValueError, match="SHA-256"):
+        plan_fixes(tmp_path, record)
 
 
 def test_exports_include_assertions_but_exclude_inputs_source_and_ssh_files(tmp_path):

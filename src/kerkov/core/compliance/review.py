@@ -290,6 +290,61 @@ def browse_controls(
     }
 
 
+def plan_fixes(
+    workspace: Path, record: dict[str, Any], *, evidence: ReviewEvidence | None = None
+) -> dict[str, Any]:
+    """Summarize confirmed failures and publisher guidance for a saved assessment."""
+    assessment = record.get("after") or record.get("before")
+    if record["status"] != "attention" or not assessment:
+        raise ValueError("Select a completed assessment with failed checks")
+    parsed, entries = (evidence or ReviewEvidence()).load(workspace, assessment)
+    failures = [
+        control for control in parsed["controls"] if control["status"] == "failed"
+    ]
+    failures.sort(
+        key=lambda control: (
+            control.get("impact") is None,
+            -(control.get("impact") or 0),
+            control["profile"],
+            control["control_id"],
+        )
+    )
+    checks = []
+    for control in failures[:8]:
+        entry = entries[(control["profile"], control["control_id"])]
+        description = (
+            entry[0].get("description")
+            if isinstance(entry, list)
+            else entry.get("desc")
+        )
+        guidance = ""
+        if isinstance(entry, dict):
+            descriptions = entry.get("descriptions")
+            if isinstance(descriptions, list):
+                guidance = next(
+                    (
+                        _text(item.get("data"))
+                        for item in descriptions
+                        if isinstance(item, dict) and item.get("label") == "fix"
+                    ),
+                    "",
+                )
+        checks.append(
+            {
+                "title": control.get("title") or control["control_id"],
+                "control_id": control["control_id"],
+                "impact": control.get("impact"),
+                "guidance": guidance or _text(description),
+                "publisher_fix": bool(guidance),
+            }
+        )
+    return {
+        "failed": len(failures),
+        "errors": parsed["counts"].get("error", 0),
+        "checks": checks,
+    }
+
+
 def review_control(
     workspace: Path,
     record: dict[str, Any],
@@ -439,8 +494,11 @@ def build_report(
             else None
         ),
         "plan": {
-            key: plan.get(key)
-            for key in ("fingerprint", "coverage", "changes", "profile_bundle")
+            **{
+                key: plan.get(key)
+                for key in ("fingerprint", "coverage", "changes", "profile_bundle")
+            },
+            **({"scap_source": plan["scap_source"]} if "scap_source" in plan else {}),
         },
         "assessments": assessments,
         "remediation": (

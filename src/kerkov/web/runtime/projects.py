@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from kerkov.core.compliance.community_fixes import CommunityFixStore
 from kerkov.core.compliance.custom_profiles import (
     CustomProfile,
     CustomProfileRef,
@@ -56,7 +57,25 @@ async def read_projects(session: WebKerkovSession, content: dict[str, Any]) -> N
             root,
             image=session.config.cinc_docker_image,
         )
-        if event == "compliance.projects":
+        if event in {
+            "compliance.fixes",
+            "compliance.fix.import",
+            "compliance.fix.review",
+        }:
+            fixes = CommunityFixStore(root)
+            if event == "compliance.fix.import":
+                fix_id = content.get("fix_id")
+                result = {
+                    "available": await fixes.import_fix(fix_id),
+                    "fix": await asyncio.to_thread(fixes.review, fix_id),
+                }
+            elif event == "compliance.fix.review":
+                result = {
+                    "fix": await asyncio.to_thread(fixes.review, content.get("fix_id"))
+                }
+            else:
+                result = {"available": await asyncio.to_thread(fixes.list)}
+        elif event == "compliance.projects":
             result = {
                 "catalog": profile_catalog(),
                 "projects": await asyncio.to_thread(projects.list),

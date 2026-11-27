@@ -305,8 +305,11 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             "compliance.project.validate",
             "compliance.project.cached",
             "compliance.custom.save",
+            "compliance.fixes",
+            "compliance.fix.import",
+            "compliance.fix.review",
         }:
-            if event_type == "compliance.custom.save" and (
+            if event_type in {"compliance.custom.save", "compliance.fix.import"} and (
                 self._engagement_mutation_pending()
                 or self._provider_mutation_pending()
                 or (self._message_task is not None and not self._message_task.done())
@@ -348,6 +351,7 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             "compliance.control",
             "compliance.datastream.inspect",
             "compliance.controls",
+            "compliance.fix.plan",
             "compliance.export",
         ):
             request_id = content.get("request_id")
