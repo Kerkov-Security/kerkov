@@ -304,7 +304,22 @@ class ConsoleConsumer(AsyncJsonWebsocketConsumer):
             "compliance.projects",
             "compliance.project.validate",
             "compliance.project.cached",
+            "compliance.custom.save",
         }:
+            if event_type == "compliance.custom.save" and (
+                self._engagement_mutation_pending()
+                or self._provider_mutation_pending()
+                or (self._message_task is not None and not self._message_task.done())
+            ):
+                self.bus.emit(
+                    event_type,
+                    {
+                        "context_id": content.get("context_id"),
+                        "request_id": content.get("request_id"),
+                        "detail": "Wait for current work to finish and try again.",
+                    },
+                )
+                return
             if len(self._project_tasks) >= 2:
                 self.bus.emit(
                     event_type,

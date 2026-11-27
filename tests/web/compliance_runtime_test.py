@@ -1,5 +1,6 @@
 """Browser-session adapters over the shared compliance workflow."""
 
+import asyncio
 import hashlib
 import json
 import sys
@@ -11,15 +12,22 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kerkov.core.approval_types import ToolApprovalResult
-from kerkov.core.cancellable_task import EventInterrupt
+from kerkov.core.cancellable_task import EventInterrupt, InterruptedByUser
 from kerkov.core.compliance.baselines import builtin_baselines
+from kerkov.core.compliance.custom_profiles import CustomProfile, CustomProfileStore
+from kerkov.core.compliance.scap_catalog import ScapPreset
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
 from kerkov.core.knowledge_base.models import LedgerEntry
+from kerkov.core.session.modes import ModeType
 from kerkov.tools.base_tool import ToolResult
 from kerkov.tools.compliance_scan_tool import ComplianceScanParams, ComplianceScanTool
-from kerkov.web.runtime.compliance import build_run, list_runs, read_evidence
-from kerkov.web.runtime.events import WebEventBus
+from kerkov.web.runtime.compliance import (
+    build_run,
+    list_runs,
+    read_evidence,
+)
+from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32", reason="Compliance controller requires POSIX"
@@ -184,6 +192,147 @@ async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_custom_profile_run_pins_saved_checks_and_reassesses_snapshot(tmp_path):
+    session = _create_mock_session(tmp_path)
+    store = CustomProfileStore(Path(session.config.compliance_projects_dir))
+    draft = CustomProfile.model_validate(
+        {
+            "name": "Account check",
+            "checks": [
+                {"kind": "file_mode", "target": "/etc/passwd", "expected": "0644"}
+            ],
+        }
+    )
+    saved = store.save(draft, None)
+    request = _create_mock_request(
+        tmp_path, action="assess", baseline_id=None
+    ).model_dump()
+    request["custom_profile"] = {"id": saved["id"], "revision": saved["revision"]}
+    request["scan"]["profile"] = saved["id"]
+    with (
+        patch(
+            "kerkov.core.workflows.compliance.shutil.which", return_value="/bin/docker"
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.SubprocessCommandRunner.run",
+            new=AsyncMock(return_value=CommandResult(exit_code=0)),
+        ),
+    ):
+        with pytest.raises(ValueError, match="assessment only"):
+            build_run(session, {**request, "action": "preview"}, "preview")
+        run = build_run(session, request, "scan")
+        await run.prepare()
+        await run.flush()
+        assert run.record["label"] == "Account check"
+        original = (Path(run.scan["profile"]) / "controls/checks.rb").read_bytes()
+        assert b"cmp '0644'" in original
+        store.save(
+            draft.model_copy(update={"name": "New title"}), run.request.custom_profile
+        )
+        with pytest.raises(ValueError, match="profile changed"):
+            await build_run(session, request, "stale").prepare()
+        retry = build_run(
+            session, {**request, "assessment_of": run.record["id"]}, "retry"
+        )
+        await retry.prepare()
+        await retry.flush()
+        assert retry.record["label"] == "Account check"
+        assert (
+            Path(retry.scan["profile"]) / "controls/checks.rb"
+        ).read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_pci_catalog_plan_matches_pin_and_reuses_saved_snapshot(tmp_path):
+    session = _create_mock_session(tmp_path)
+    preset = ScapPreset(9, "0" * 64)
+    source = tmp_path / preset.filename
+    raw = (
+        Path(__file__).parents[1] / "core/compliance/fixtures/openscap-datastream.xml"
+    ).read_bytes()
+    raw = raw.replace(
+        b"xccdf_example_profile_server", preset.settings()["profile_id"].encode()
+    )
+    source.write_bytes(raw)
+    preset = ScapPreset(9, hashlib.sha256(raw).hexdigest())
+    request = _create_mock_request(
+        tmp_path, action="assess", baseline_id=None
+    ).model_dump()
+    request["scap_preset_id"] = preset.id
+    request["scan"].update(profile=preset.filename, openscap=preset.settings())
+
+    with (
+        patch("kerkov.core.workflows.compliance.scap_preset", return_value=preset),
+        patch(
+            "kerkov.core.workflows.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.prepare_scap_preset",
+            new=AsyncMock(return_value=source),
+        ) as prepare,
+    ):
+        changed = {
+            **request["scan"],
+            "openscap": {**preset.settings(), "version": "10.*"},
+        }
+        with pytest.raises(ValueError, match="selected catalog profile"):
+            build_run(session, {**request, "scan": changed}, "changed")
+        with pytest.raises(ValueError, match="assessment only"):
+            build_run(session, {**request, "action": "apply"}, "apply")
+        run = build_run(session, request, "scan")
+        await run.prepare()
+        assert run.record["plan"]["scap_source"] == preset.source()
+        assert run.record["label"] == preset.name
+        snapshot = Path(run.scan["profile"])
+        assert snapshot != source and snapshot.read_bytes() == raw
+        await run.flush()
+        source.unlink()
+        retry = build_run(
+            session, {**request, "assessment_of": run.record["id"]}, "retry"
+        )
+        await retry.prepare()
+        assert Path(retry.scan["profile"]).read_bytes() == raw
+        prepare.assert_awaited_once()
+        await retry.flush()
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_pci_catalog_preparation(tmp_path):
+    session = _create_mock_session(tmp_path)
+    preset = ScapPreset(9, "0" * 64)
+    request = _create_mock_request(
+        tmp_path, action="assess", baseline_id=None
+    ).model_dump()
+    request["scap_preset_id"] = preset.id
+    request["scan"].update(profile=preset.filename, openscap=preset.settings())
+    interrupt = EventInterrupt()
+
+    async def stop_during_download(*args):
+        interrupt.interrupt_requested.set()
+        await asyncio.Future()
+
+    with (
+        patch("kerkov.core.workflows.compliance.scap_preset", return_value=preset),
+        patch(
+            "kerkov.core.workflows.compliance.ansible_binary",
+            return_value="/bin/ansible-playbook",
+        ),
+        patch(
+            "kerkov.core.workflows.compliance.prepare_scap_preset",
+            new=stop_during_download,
+        ),
+    ):
+        run = build_run(session, request, "scan")
+        with pytest.raises(InterruptedByUser):
+            await run.prepare(interrupt)
+        await run.finish(interrupt)
+    assert run.record["status"] == "interrupted"
+    assert run.record["plan"] == {}
+    session.approval_strategy.approve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "counts,expected",
     [
@@ -300,6 +449,7 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         bus, config=_config(tmp_path, execution_enabled=True), provider=provider
     )
     await session.initialize()
+    assert session.mode_manager.current_mode.mode_type is ModeType.PURPLE
     session._apply_system_prompt_if_needed()
     asset_id = await session.findings_ledger.add(
         LedgerSection.ASSETS,
@@ -383,6 +533,12 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         events = bus.drain_nowait()
         assert any(e["type"] == "compliance.updated" for e in events)
         assert not any(e["type"] == "assistant.message" for e in events)
+        assert not any(
+            event["type"] == "compliance.event"
+            and event["payload"]["event_type"] == "log.warning"
+            and "/mode blue" in event["payload"]["payload"].get("message", "")
+            for event in events
+        )
     finally:
         await session.aclose()
 

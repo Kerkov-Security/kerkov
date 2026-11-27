@@ -520,7 +520,7 @@ class WebKerkovSession:
                     run = build_run(self, workflow_request, workflow_id)
                     self.compliance_run = run
                     run.publish()
-                    await run.prepare()
+                    await run.prepare(active_interrupt)
                     message = run.plan_message()
                     overlay = [COMPLIANCE_WORKFLOW.overlay]
                     preparing_workflow = False

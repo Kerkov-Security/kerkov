@@ -9,7 +9,9 @@ import json
 import os
 import shutil
 import sys
+from contextlib import ExitStack
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from pydantic import ValidationError
@@ -21,14 +23,19 @@ from kerkov.core.automation.profiles import (
     file_digest,
     local_file,
 )
-from kerkov.core.cancellable_task import InterruptHandle
+from kerkov.core.cancellable_task import InterruptHandle, run_cancellable
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.cinc_runtime import (
     profile_source,
     snapshot_profile,
     snapshot_reviewed_profile,
 )
+from kerkov.core.compliance.custom_profiles import CustomProfileStore
 from kerkov.core.compliance.openscap import datastream_bytes
+from kerkov.core.compliance.scap_catalog import (
+    prepare_scap_preset,
+    scap_preset,
+)
 from kerkov.core.compliance.workflows import (
     WorkflowRequest,
     WorkflowStore,
@@ -85,10 +92,38 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
             or request.bootstrap_python
         ):
             raise ValueError("A SCAP datastream supports assessment only")
+        if request.custom_profile and (
+            request.action != "assess"
+            or self.baseline
+            or request.scap_preset_id
+            or request.scan.openscap
+            or request.scan.inputs_file
+            or request.remediation
+            or request.bootstrap_python
+            or request.scan.profile != request.custom_profile.id
+        ):
+            raise ValueError(
+                "A custom profile supports assessment only with its saved checks"
+            )
+        self.scap_preset = scap_preset(request.scap_preset_id)
+        if request.scap_preset_id is not None and (
+            self.scap_preset is None
+            or request.scan.openscap is None
+            or request.scan.profile != self.scap_preset.filename
+            or request.scan.openscap.model_dump() != self.scap_preset.settings()
+        ):
+            raise ValueError(
+                "The SCAP settings do not match the selected catalog profile"
+            )
         if self.baseline and request.scan.profile != self.baseline["profile"]:
             raise ValueError("Baseline profile does not match the selected baseline")
         self.record = new_record(
-            request, self.baseline["name"] if self.baseline else "Custom baseline"
+            request,
+            (
+                self.scap_preset.name
+                if self.scap_preset
+                else self.baseline["name"] if self.baseline else "Custom baseline"
+            ),
         )
         self.output = WorkflowOutput(self, context.sink)
         self.scan = request.scan.model_dump()
@@ -141,7 +176,7 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
         if self._writer is not None:
             await asyncio.shield(self._writer)
 
-    async def prepare(self) -> None:
+    async def prepare(self, interrupt: InterruptHandle | None = None) -> None:
         blockers = controller_blockers(self.context.config)
         if blockers:
             raise ValueError(blockers[0])
@@ -162,15 +197,16 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
         if error:
             raise ValueError(error)
         previous = None
-        if self.request.assessment_of:
+        source_id = self.request.assessment_of
+        if source_id:
             if self.request.action != "assess":
                 raise ValueError("Recovery reassessment cannot apply changes")
-            previous = await asyncio.to_thread(
-                self.store.load, self.request.assessment_of
-            )
+            previous = await asyncio.to_thread(self.store.load, source_id)
             prior = WorkflowRequest.model_validate(previous["request"])
             if (
                 prior.resource_id != self.request.resource_id
+                or prior.scap_preset_id != self.request.scap_preset_id
+                or prior.custom_profile != self.request.custom_profile
                 or prior.scan_settings() != self.request.scan_settings()
             ):
                 raise ValueError(
@@ -184,7 +220,25 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
             if previous.get("plan", {}).get("baseline"):
                 self.baseline = previous["plan"]["baseline"]
             self.record["before"] = previous.get("after") or previous.get("before")
-        await asyncio.to_thread(self._prepare_files, rows, previous)
+        scap_source = None
+        if self.scap_preset and previous is None:
+            if not ansible_binary():
+                raise ValueError(
+                    "Install Ansible on the controller; run kerkov setup ansible for guidance"
+                )
+            self.record["detail"] = (
+                "Preparing the pinned SCAP benchmark. The first scan downloads the upstream release."
+            )
+            self.publish()
+            prepare = prepare_scap_preset(
+                Path(self.context.config.compliance_projects_dir), self.scap_preset
+            )
+            scap_source = (
+                await run_cancellable(prepare, interrupt.interrupt_requested)
+                if interrupt is not None
+                else await prepare
+            )
+        await asyncio.to_thread(self._prepare_files, rows, previous, scap_source)
         self.record["readiness"].append(
             {
                 "name": "Profile and SSH files",
@@ -238,7 +292,8 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
                 or preview.get("signature") != self.request.signature()
                 or preview.get("plan", {}).get("fingerprint")
                 != self.record["plan"]["fingerprint"]
-                or preview.get("plan", {}).get("image") != self.record["plan"]["image"]
+                or preview.get("plan", {}).get("image")
+                != self.record["plan"].get("image")
             ):
                 raise ValueError(
                     "The preview does not match these settings or files. Preview again before applying"
@@ -251,7 +306,10 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
         await self.flush()
 
     def _prepare_files(
-        self, rows: list, previous: dict[str, Any] | None = None
+        self,
+        rows: list,
+        previous: dict[str, Any] | None = None,
+        scap_source: Path | None = None,
     ) -> None:
         scan = self.request.scan
         directory = self.store.root / self.record["id"]
@@ -274,29 +332,44 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
             if name in {"inputs_file", "known_hosts_file"}:
                 files[name] = file_digest(path)
         if scan.openscap:
-            self._prepare_openscap_files(directory, files, previous)
+            self._prepare_openscap_files(directory, files, previous, scap_source)
             return
-        source, manifest = profile_source(
-            self.workspace, previous["plan"]["profile"] if previous else scan.profile
-        )
-        if directory.is_relative_to(source):
-            raise ValueError(
-                "Choose a self-contained profile outside the compliance plan directory"
-            )
+        projects_root = Path(self.context.config.compliance_projects_dir)
         snapshot = directory / "profile"
-        metadata, profile_hash, bundle = snapshot_reviewed_profile(
-            source,
-            snapshot,
-            self.workspace,
-            {
-                Path(self.scan[k])
-                for k in ("private_key_file", "known_hosts_file", "inputs_file")
-                if self.scan.get(k)
-            },
-            Path(self.context.config.compliance_projects_dir),
-        )
+        with ExitStack() as temporary:
+            if self.request.custom_profile and not previous:
+                reference = self.request.custom_profile
+                profile = CustomProfileStore(projects_root).get(reference)
+                source = Path(
+                    temporary.enter_context(TemporaryDirectory(dir=directory))
+                )
+                profile.render(reference.id, source)
+                self.record["label"] = profile.name
+                manifest = None
+            else:
+                source, manifest = profile_source(
+                    self.workspace,
+                    previous["plan"]["profile"] if previous else scan.profile,
+                )
+            if directory.is_relative_to(source):
+                raise ValueError(
+                    "Choose a self-contained profile outside the compliance plan directory"
+                )
+            metadata, profile_hash, bundle = snapshot_reviewed_profile(
+                source,
+                snapshot,
+                self.workspace,
+                {
+                    Path(self.scan[k])
+                    for k in ("private_key_file", "known_hosts_file", "inputs_file")
+                    if self.scan.get(k)
+                },
+                projects_root,
+            )
         self.scan["profile"] = str(snapshot)
-        if self.baseline is None:
+        if self.request.custom_profile and previous:
+            self.record["label"] = previous["label"]
+        elif self.baseline is None and not self.request.custom_profile:
             self.record["label"] = metadata["name"]
         if manifest and (
             profile_hash != manifest["profile_sha256"]
@@ -419,13 +492,22 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
         }
 
     def _prepare_openscap_files(
-        self, directory: Path, files: dict[str, str], previous: dict[str, Any] | None
+        self,
+        directory: Path,
+        files: dict[str, str],
+        previous: dict[str, Any] | None,
+        scap_source: Path | None,
     ) -> None:
         scan = self.request.scan
         settings = scan.openscap
         assert settings is not None
         source = local_file(
-            previous["plan"]["profile"] if previous else scan.profile, self.workspace
+            (
+                previous["plan"]["profile"]
+                if previous
+                else str(scap_source or scan.profile)
+            ),
+            self.workspace,
         )
         if previous and (
             source != self.store.root / previous["id"] / "datastream.xml"
@@ -439,7 +521,9 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
         snapshot = directory / "datastream.xml"
         snapshot.write_bytes(raw)
         self.scan["profile"] = str(snapshot)
-        self.record["label"] = settings.profile_id
+        self.record["label"] = (
+            self.scap_preset.name if self.scap_preset else settings.profile_id
+        )
         files["profile_sha256"] = settings.sha256
         self.record["plan"] = {
             "fingerprint": hashlib.sha256(
@@ -452,6 +536,8 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
             "changes": "Assessment only. Ansible stages the reviewed datastream and runs the installed scanner.",
             "coverage": f"{settings.distribution} {settings.version} · {settings.profile_id}",
         }
+        if self.scap_preset:
+            self.record["plan"]["scap_source"] = self.scap_preset.source()
 
     def plan_message(self) -> str:
         """The run's own arguments; the static objective is the definition's overlay."""
@@ -569,7 +655,7 @@ class ComplianceRun(ApprovalStrategy, WorkflowRun):
                 return "This preview does not include a verification stage"
             actual = ComplianceScanParams.model_validate(params).model_dump()
             expected = dict(self.scan)
-            if self.assessment_count:
+            if self.assessment_count and not self.request.scan.openscap:
                 expected["profile"] = (
                     self.record["before"]["artifact_directory"] + "/profile"
                 )
