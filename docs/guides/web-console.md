@@ -410,16 +410,46 @@ The terminal runs the same workflow and reads the same saved runs through
 [`/workflow compliance`](../reference/tools/compliance.md#terminal-workflow).
 
 Setup runs from **Host** to **Profiles** to **Assessment**, with actions after the
-profile choices. Profiles appear as selectable panels on the main page. **Customize** opens a
-detailed section for SSH key-file references, profile settings and remediation
-options; **Done** closes it while preserving your edits. **Profile search & imports**
-contains local profiles, search filters and GitHub imports. Filtering keeps the
-selected profile and connection details. **Complete missing settings** opens and focuses
-the first missing field. When hosts share an address, choose the intended port
+profile choices. Use **Search profiles** to find a benchmark by platform,
+version, or service. The source filter shows built-in, community, or local
+profiles and keeps your current selection and connection details.
+**Customize** opens the SSH key-file references, profile settings, remediation
+options, and **Profile imports** for GitHub URLs. **Done** closes it while
+preserving your edits. **Complete missing settings** opens and focuses the first
+missing field. When hosts share an address, choose the intended port
 from **SSH endpoint** beside **Host** before scanning. Saved results show the
 port they assessed.
 Available settings do not confirm access: the workflow checks the connection when
 it runs.
+
+#### Build your own profile
+
+Select **New profile**, name it, and add the checks you want to run. The builder
+supports file existence, ownership and permissions, package presence or absence,
+and whether a service is enabled or disabled. Enter an absolute Linux file path
+or the package or service name. For a permissions check, use a four-digit octal
+mode such as 0644. Save the profile to add it to **My profiles**. You can edit it
+there and scan it using **Scan host**. Custom profiles collect evidence, and
+saved scans retain the checks from the revision they assessed.
+
+#### Choose a profile automatically
+
+Select **Auto assessment** and choose an **Assessment goal** if you need a
+specific benchmark such as DISA STIG, CIS Linux, or PCI DSS. The default is
+general Linux hardening. **Scan host** uses the selected SSH endpoint and its
+recorded access to read the host's Linux release under the current approval
+mode. Conversation shows the detected platform and recommended profile. Select
+**Scan with recommended profile** to start the assessment. If the catalog lacks
+a matching profile for the chosen goal, the card explains which platform was
+detected so you can choose a profile manually.
+
+For **PCI DSS v4.0.1**, choose the matching **RHEL 8**, **RHEL 9**, or **RHEL
+10** community profile, then select **Scan host**. The controller downloads and
+verifies the pinned SCAP Security Guide release on first use (about 175 MB). It
+reuses the verified datastreams for subsequent scans. The approved assessment
+checks the target's RHEL major release and uses its installed OpenSCAP scanner.
+The report records host configuration evidence for your PCI DSS assessment.
+See [PCI DSS community profiles](../reference/tools/compliance.md#pci-dss-community-profiles).
 
 For a reviewed SCAP benchmark, select **SCAP datastream**, enter its local path,
 and choose **Inspect datastream**. The controller computes the SHA-256, lists
@@ -507,10 +537,11 @@ keys stay in their existing files; normal approvals still govern execution.
 - **Scan host** checks the selected baseline without requesting remediation.
   Under **Community profiles**, choose a profile and select **Scan host**. The
   first scan checks the repository and prepares the pinned revision before
-  assessing the host. Expand **Profile source and dependencies** next to the
+  assessing the host. Match the STIG to your OS release, or select a general
+  Linux or service baseline for a host running the relevant service. Expand **Profile source and dependencies** next to the
   scan controls to inspect the revision. Preparation and assessment each use
   the normal tool approvals. Later scans use the prepared copy. Use
-  **Customize → Profile search & imports** to validate your own public GitHub URL
+  **Customize → Profile imports** to validate your own public GitHub URL
   or explicitly update a prepared profile. A failed update keeps the previous
   copy. See [catalog and URL downloads](../reference/tools/compliance.md#catalog-and-url-downloads).
   **Existing InSpec project** accepts downloaded or local projects, including
@@ -571,11 +602,10 @@ example **Assessment failed:** with the reason, rather than a generic finish.
 
 **Before you run**, above the form, lists conditions that are known before any
 connection details are entered. With `EXECUTION_ENABLED` off, or on a Windows
-controller (use Linux, macOS or WSL), the run buttons are disabled. Outside Blue
-mode it notes that compliance targets Blue and that `/mode blue` starts a new
-engagement; runs remain available. The list updates when the mode changes or a
-saved engagement is resumed, and the server still checks every condition when
-a run starts.
+controller (use Linux, macOS or WSL), the run buttons are disabled. Compliance
+works in both Blue and Purple with the current engagement. Red shows a mode
+advisory and still allows runs. The list updates when the mode changes or a saved
+engagement is resumed, and the server checks every prerequisite when a run starts.
 Execution requires `EXECUTION_ENABLED`, Docker/Cinc and Ansible prerequisites;
 see [assessment](../reference/tools/compliance.md) and
 [automation](../reference/tools/ansible.md). For built-in remediation, the

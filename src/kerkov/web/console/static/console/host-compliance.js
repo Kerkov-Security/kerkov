@@ -9,6 +9,7 @@ class HostCompliance {
     this.selectedIdentity = null;
     this.chosenHostIdentity = null;
     this.assessmentCard = null;
+    this.recommendation = null;
     this.baselineId = this.baselines[0].id;
     this.run = null;
     this.workflowId = null;
@@ -46,9 +47,6 @@ class HostCompliance {
       this.el("compliance-customize-heading").focus();
     });
     this.el("compliance-customize-done").addEventListener("click", () => {
-      this.el("compliance-profile-search").value = "";
-      this.el("compliance-profile-source").value = "all";
-      this.filterProfiles();
       this.el("compliance-advanced").open = false;
       this.el("compliance-customize").focus();
     });
@@ -122,11 +120,9 @@ class HostCompliance {
       this.inspectDatastream();
     });
     this.field("scap_profile_id").addEventListener("change", () => this.updateScapProfileId());
-    for (const id of ["compliance-project-url", "compliance-profile-search"]) {
-      this.el(id).addEventListener("keydown", (event) => {
-        if (event.key === "Enter") event.preventDefault();
-      });
-    }
+    this.el("compliance-project-url").addEventListener("keydown", event => {
+      if (event.key === "Enter") event.preventDefault();
+    });
     this.form.addEventListener("input", (event) => {
       if (event.target.name === "scap_datastream") {
         this.resetScap();
@@ -154,7 +150,7 @@ class HostCompliance {
     for (const button of this.form.querySelectorAll("[data-compliance-action]")) {
       button.addEventListener("click", () => {
         if (button.dataset.complianceAction === "assess") this.scanHost();
-        else this.start(button.dataset.complianceAction);
+        else this.start("preview");
       });
     }
     this.el("compliance-host").addEventListener("change", (event) => {
@@ -173,6 +169,8 @@ class HostCompliance {
     });
     this.el("compliance-welcome").addEventListener("click", () => this.inventory.showView("compliance"));
     this.el("compliance-open-conversation").addEventListener("click", () => this.inventory.showView("conversation"));
+    this.builder = new ComplianceProfileBuilder(this);
+    this.el("compliance-auto").addEventListener("click", () => this.selectLocalChoice("auto"));
     this.projects = new ComplianceProjects(this);
     this.renderBaselines();
     this.renderSelection();
@@ -205,6 +203,9 @@ class HostCompliance {
     this.el("compliance-profile-search").value = "";
     this.el("compliance-profile-source").value = "all";
     this.projects.reset();
+    this.builder.reset();
+    this.recommendation = null;
+    this.el("compliance-auto-goal").value = "hardening";
     this.el("compliance-control-impact").value = "all";
     this.el("compliance-control-sort").value = "priority";
     this.closeReviewRequests();
@@ -374,6 +375,7 @@ class HostCompliance {
       button.addEventListener("click", () => {
         this.projects.deselect();
         this.baselineId = item.id;
+        if (button.dataset.profileSource === "local") this.el("compliance-advanced").open = true;
         this.renderBaselines();
         this.renderSelection();
       });
@@ -385,21 +387,29 @@ class HostCompliance {
   }
 
   filterProfiles() {
-    const search = this.el("compliance-profile-search").value.trim().toLowerCase();
+    const terms = this.el("compliance-profile-search").value.toLowerCase().match(/\S+/g) || [];
     const source = this.el("compliance-profile-source").value;
-    const cards = [...this.el("compliance-baselines").children, ...this.el("compliance-projects").children, ...this.el("compliance-local-profiles").children];
+    const cards = [...this.el("compliance-baselines").children, ...this.el("compliance-custom-profiles").children,
+      ...this.el("compliance-projects").children, ...this.el("compliance-local-profiles").children];
     let visible = 0;
     for (const card of cards) {
-      card.hidden = (source !== "all" && card.dataset.profileSource !== source) || !card.textContent.toLowerCase().includes(search);
+      const text = Array.from(card.children, child => child.textContent).join(" ").toLowerCase();
+      card.hidden = (source !== "all" && card.dataset.profileSource !== source) || !terms.every(term => text.includes(term));
       if (!card.hidden) visible += 1;
     }
-    const communityVisible = [...this.el("compliance-projects").children].some(card => !card.hidden);
-    this.el("compliance-community-heading").hidden = !communityVisible;
+    for (const [list, heading] of [["compliance-projects", "compliance-community-heading"], ["compliance-local-profiles", "compliance-local-heading"]]) {
+      this.el(heading).hidden = !Array.from(this.el(list).children).some(card => !card.hidden);
+    }
+    const customVisible = Array.from(this.el("compliance-custom-profiles").children).some(card => !card.hidden);
+    this.el("compliance-custom-heading").hidden = !customVisible;
+    this.el("compliance-custom-profiles").hidden = !customVisible;
     this.el("compliance-profile-empty").hidden = visible > 0;
-    this.text("compliance-profile-count", `${visible} of ${cards.length} profiles · filtering keeps your current selection`);
+    this.el("compliance-profile-count").hidden = !terms.length && source === "all";
+    this.text("compliance-profile-count", `${visible} of ${cards.length} profiles`);
   }
 
   assessmentFields() {
+    if (this.scapPreset() || this.customProfile() || this.baselineId === "auto") return [...COMPLIANCE_SSH_FIELDS];
     return [...COMPLIANCE_SSH_FIELDS,
       ...(this.isOpenScap() ? ["scap_datastream", "scap_sha256", "scap_profile_id", "scap_distribution", "scap_version"] : !this.baseline() ? ["profile"] : [])];
   }
@@ -430,14 +440,36 @@ class HostCompliance {
       : missingAccess && !this.accessDirty ? "Scan host looks up SSH access recorded in this engagement."
       : remotePending && this.projects.selected && !missingAccess ? "The selected community profile will be prepared on its first scan."
       : missing.length ? "Review the missing details in Customize."
+      : this.baselineId === "auto" ? "Scan host checks the Linux release and recommends a profile."
       : "Ready to assess. Access is checked when the workflow runs.");
     const button = this.el("compliance-complete-settings");
     button.hidden = !this.host() || remotePending || !missing.length;
     button.disabled = !this.inventory.canWrite();
   }
 
+  customProfile() { return this.builder?.entries.get(this.baselineId); }
+
+  selectLocalChoice(id) {
+    if (!this.inventory.canWrite()) return;
+    this.stopAssessmentSetup("");
+    this.projects.deselect();
+    this.baselineId = id;
+    this.renderBaselines();
+    this.renderSelection();
+  }
+
+  selectCustomProfile(id) {
+    if (this.builder.entries.has(id)) this.selectLocalChoice(id);
+  }
+
+  scapPreset() {
+    return this.projects?.catalog.find(item => item.openscap && item.id === this.baselineId);
+  }
+
+  selectScapPreset(id) { this.selectLocalChoice(id); }
+
   isOpenScap() {
-    return this.baselineId === "openscap";
+    return this.baselineId === "openscap" || !!this.scapPreset();
   }
 
   ansibleBlocked() {
@@ -469,7 +501,7 @@ class HostCompliance {
   }
 
   inspectDatastream() {
-    if (!this.inventory.canWrite() || !this.host() || !this.isOpenScap() || this.scapRequest ||
+    if (!this.inventory.canWrite() || !this.host() || this.baselineId !== "openscap" || this.scapRequest ||
         !this.fieldComplete("scap_datastream")) return;
     const path = this.field("scap_datastream").value.trim();
     const selected = this.field("scap_profile_id").value;
@@ -535,23 +567,28 @@ class HostCompliance {
     const baseline = this.baseline();
     const remote = this.baselineId === "remote";
     const openscap = this.isOpenScap();
-    this.el("compliance-custom").hidden = !!baseline || openscap;
+    const preset = this.scapPreset();
+    const custom = this.customProfile();
+    const auto = this.baselineId === "auto";
+    this.el("compliance-auto").setAttribute("aria-pressed", String(auto));
+    this.el("compliance-auto-options").hidden = !auto;
+    this.el("compliance-custom").hidden = !!baseline || openscap || !!custom || auto;
     const scapSettings = this.el("compliance-openscap");
-    scapSettings.hidden = !openscap;
-    if (openscap) scapSettings.open = true;
+    scapSettings.hidden = !openscap || !!preset;
+    if (openscap && !preset) scapSettings.open = true;
     this.el("compliance-local-profile").hidden = remote;
     this.text("compliance-project-settings-title", remote ? "Profile inputs (optional)" : "Existing project settings");
     this.text("compliance-project-help", remote ? "Kerkov downloads and prepares this project. Supply an inputs file when the upstream profile needs settings for your environment." : "Select a local InSpec project containing inspec.yml. Prepare its dependencies with inspec vendor before scanning. Assess asset does not require an Ansible playbook.");
     const bootstrap = this.field("bootstrap_python").closest("label");
-    bootstrap.hidden = remote || openscap;
-    bootstrap.nextElementSibling.hidden = remote || openscap;
-    this.text("compliance-action-help", openscap ? "" : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
+    bootstrap.hidden = remote || openscap || !!custom || auto;
+    bootstrap.nextElementSibling.hidden = bootstrap.hidden;
+    this.text("compliance-action-help", openscap || custom || auto ? "" : remote ? "Community profiles are assessments without automatic fixes. Normal tool approvals apply; review the profile's coverage and any manual checks." : "Applies the selected baseline, then checks it again. Missing Python 3 is installed only when you enable the option above. Tool calls use your current approval mode. Preview does not install Python; other Ansible tasks can still make changes in check mode.");
     for (const field of this.el("compliance-custom").querySelectorAll(".compliance-custom-fix")) field.hidden = remote;
     if (remote) this.field("profile").value = this.projects.ready?.profile || "";
-    const profileLabel = openscap ? "SCAP datastream" : (remote ? this.projects.selectedName() : "Existing InSpec project");
+    const profileLabel = custom?.name || (auto ? "Auto assessment" : preset?.name) || (openscap ? "SCAP datastream" : remote ? this.projects.selectedName() : "Existing InSpec project");
     this.text("compliance-profile-name", baseline?.name || profileLabel);
     this.text("compliance-selection", host ? host.entry.name || host.entry.value : "No host selected");
-    this.text("compliance-changes", baseline?.changes || (openscap ? "Stage the selected datastream and assess with OpenSCAP." : remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
+    this.text("compliance-changes", custom || auto ? "" : baseline?.changes || (openscap ? "Stage the selected datastream and assess with OpenSCAP." : remote ? "Assess this downloaded community profile. Automatic fixes are not included." : "Assess an existing profile project. Configure an Ansible playbook only when requesting remediation."));
     this.text("compliance-coverage", baseline ? `${baseline.platform} · Built-in baseline v${baseline.version} · Covers these specific checks, not full CIS or PCI certification.` : "Your profile defines its coverage and supported operating systems.");
     this.updateSetupSummary(this.el("compliance-setup").open ? null : this.savedRun);
     this.connectionSummary();
@@ -565,7 +602,7 @@ class HostCompliance {
 
   profileLabel(record) {
     const settings = record.request.scan.openscap;
-    if (!settings) return record.label;
+    if (!settings || record.request.scap_preset_id) return record.label;
     const id = settings.profile_id;
     const known = this.projects.ready?.profiles?.find(profile => profile.id === id);
     const label = known?.title || id.split("_profile_").pop().replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase());
@@ -576,7 +613,8 @@ class HostCompliance {
     const host = record ? this.inventory.entries.get(record.request.resource_id) : this.host();
     const scan = record?.request.scan;
     const address = scan?.host || host?.entry.value;
-    const profile = record ? this.profileLabel(record) : this.baseline()?.name || this.projects.ready?.name || (this.isOpenScap() ? "SCAP datastream" : "Existing InSpec project");
+    const profile = record ? this.profileLabel(record) : this.baseline()?.name || this.scapPreset()?.name || this.customProfile()?.name ||
+      (this.baselineId === "auto" ? "Auto assessment" : this.projects.ready?.name) || (this.isOpenScap() ? "SCAP datastream" : "Existing InSpec project");
     this.text("compliance-setup-summary", host?.entry.name || address || "Choose a host and profile");
     this.text("compliance-setup-profile", address ? `${scan ? this.sshEndpoint(scan) : address} · ${profile}` : "");
   }
@@ -596,25 +634,37 @@ class HostCompliance {
   }
 
   canPreviewFixes(record) {
-    return this.hasFailedChecks(record) && !!(record.request.baseline_id || record.request.remediation);
+    const remediation = record?.request.remediation;
+    return this.hasFailedChecks(record) && !!(record.request.baseline_id ||
+      (remediation?.profile && remediation.playbook && remediation.limit));
+  }
+
+  customRemediationConfigured() {
+    return ["automation_profile", "playbook", "host_alias"].every(name => this.fieldComplete(name));
   }
 
   updateFixActions() {
     const record = this.savedRun;
     const scan = record?.request.scan;
     const matching = !!record && record.request.resource_id === this.host()?.id
-      && scan.host === this.host()?.entry.value
+      && scan.host === this.host()?.entry.value && scan.port === Number(this.field("port").value)
       && (record.request.baseline_id ? record.request.baseline_id === this.baselineId
         : this.baselineId === "custom" && scan.profile === this.field("profile").value.trim());
-    const available = matching && this.hasFailedChecks(record) && !["remote", "openscap"].includes(this.baselineId);
+    const configured = this.baseline() || (this.baselineId === "custom" && this.customRemediationConfigured());
+    const available = matching && configured && this.hasFailedChecks(record) && record.status !== "previewed";
     const preview = this.form.querySelector('[data-compliance-action="preview"]');
     preview.hidden = !available;
     preview.disabled = !this.inventory.canWrite() || !available || !!this.readiness.blockers.length;
     const resultPreview = this.el("compliance-result-preview");
-    resultPreview.hidden = !this.canPreviewFixes(record) || record.status === "previewed" || this.el("compliance-setup").open;
+    const canPreview = this.canPreviewFixes(record);
+    resultPreview.hidden = !canPreview || record.status === "previewed" ||
+      (this.el("compliance-setup").open && available);
     resultPreview.disabled = !this.inventory.canWrite() || !!this.readiness.blockers.length;
     this.el("compliance-preview-warning").hidden = preview.hidden;
-    this.el("compliance-result-preview-warning").hidden = resultPreview.hidden;
+    const checkMode = canPreview;
+    this.el("compliance-result-preview-warning").hidden = resultPreview.hidden || !checkMode;
+    if (checkMode) resultPreview.setAttribute("aria-describedby", "compliance-result-preview-warning");
+    else resultPreview.removeAttribute("aria-describedby");
   }
 
   setState() {
@@ -623,7 +673,7 @@ class HostCompliance {
       const needsHost = control.name || (control.dataset.complianceAction && control.dataset.complianceAction !== "assess");
       control.disabled = !writable || (!!needsHost && !this.host());
     }
-    const assessmentOnly = ["remote", "openscap"].includes(this.baselineId);
+    const assessmentOnly = this.baselineId === "remote" || this.isOpenScap() || !!this.customProfile() || this.baselineId === "auto";
     if (assessmentOnly) this.field("bootstrap_python").disabled = true;
     if (this.baselineId === "remote") {
       this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !this.projects.selected || !!this.projects.preparation;
@@ -633,7 +683,7 @@ class HostCompliance {
     const recheck = this.el("compliance-scap-recheck");
     recheck.hidden = !this.host() || !this.ansibleBlocked();
     recheck.disabled = !writable || !!this.scapRequest;
-    if (this.isOpenScap() && (this.scapRequest || this.ansibleBlocked())) {
+    if (this.ansibleBlocked() || (this.baselineId === "openscap" && this.scapRequest)) {
       this.form.querySelector('[data-compliance-action="assess"]').disabled = true;
     }
     if (this.readiness.blockers.length) {
@@ -641,6 +691,9 @@ class HostCompliance {
     }
     this.form.querySelector('[data-compliance-action="assess"]').disabled ||= !!this.pendingAssessment;
     this.projects.render();
+    this.builder.render();
+    this.el("compliance-auto").disabled = !writable;
+    this.el("compliance-auto-goal").disabled = !writable;
     this.el("compliance-host").disabled = !writable || !this.host();
     for (const button of this.el("compliance-view").querySelectorAll("[data-compliance-baseline]")) button.disabled = !writable;
     this.el("compliance-customize").disabled = !writable;
@@ -791,7 +844,7 @@ class HostCompliance {
   }
 
   newWorkflowCard(action) {
-    const titles = { assess: "Compliance assessment", preview: "Compliance preview", apply: "Compliance remediation" };
+    const titles = { assess: "Compliance assessment", preview: "Compliance preview", apply: "Compliance remediation", review: "Compliance fix review" };
     const status = this.node("p", "", action === "assess" ? "Preparing the assessment…" : "Checking workflow prerequisites…");
     status.setAttribute("role", "status");
     const target = this.node("p", "compliance-chat-target", "");
@@ -906,10 +959,10 @@ class HostCompliance {
     if (!record) return;
     if (card.action !== "assess") this.renderRemediationSummary(card, record);
     if (card.action === "assess" && this.canPreviewFixes(record)) {
+      const preview = this.cardButton(card, "Preview fixes", () => this.previewSavedRun(record), true);
       const warning = this.node("p", "compliance-caption", this.el("compliance-result-preview-warning").textContent);
       warning.id = `compliance-chat-preview-warning-${record.id}`;
       card.summary.append(warning);
-      const preview = this.cardButton(card, "Preview fixes", () => this.previewSavedRun(record), true);
       preview.setAttribute("aria-describedby", warning.id);
       card.controls.append(preview);
     }
@@ -966,7 +1019,8 @@ class HostCompliance {
   }
 
   previewSavedRun(record) {
-    if (this.canPreviewFixes(record) && this.restoreSettings(record)) this.start("preview");
+    if (!this.canPreviewFixes(record)) return;
+    if (this.restoreSettings(record)) this.start("preview");
   }
 
   reviewPreview(record) {
@@ -1155,14 +1209,17 @@ class HostCompliance {
     }
     const baseline = this.baseline();
     const openscap = this.isOpenScap();
-    if (openscap && action !== "assess") return;
+    const preset = this.scapPreset();
+    const custom = this.customProfile();
+    const auto = this.baselineId === "auto";
+    if ((openscap || custom || auto) && action !== "assess") return;
     if (this.ansibleBlocked()) {
       const recheck = this.el("compliance-scap-recheck");
       this.openSettings(recheck);
       recheck.focus();
       return;
     }
-    if (openscap && !this.fieldComplete("scap_sha256")) {
+    if (openscap && !preset && !this.fieldComplete("scap_sha256")) {
       const field = this.fieldComplete("scap_datastream") ? this.el("compliance-scap-inspect") : this.field("scap_datastream");
       this.openSettings(field);
       this.text("compliance-status", "Inspect the datastream before scanning.");
@@ -1180,8 +1237,8 @@ class HostCompliance {
     for (const input of this.form.querySelectorAll("input, select")) {
       if (input.type === "checkbox" || !input.name) continue;
       input.required = required.includes(input.name);
-      if (!openscap && input.name.startsWith("scap_")) continue;
-      if (customFields.includes(input.name) && (baseline || openscap || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
+      if ((!openscap || preset) && input.name.startsWith("scap_")) continue;
+      if (customFields.includes(input.name) && (baseline || openscap || custom || auto || (action === "assess" && !["profile", "inputs_file"].includes(input.name)))) continue;
       values[input.name] = input.value.trim();
       if (!input.checkValidity() || (input.required && !values[input.name]) || /[\x00-\x1f\x7f]/.test(values[input.name])) {
         this.showInvalidAssessmentSettings(input, "Complete the connection and selected profile settings to continue.");
@@ -1195,10 +1252,15 @@ class HostCompliance {
     }
     const scan = {
       host: host.entry.value, user: values.user, port: Number(values.port),
-      profile: openscap ? values.scap_datastream : (baseline?.profile || values.profile),
+      profile: auto ? "auto" : custom?.id || preset?.filename ||
+        (openscap ? values.scap_datastream : baseline?.profile || values.profile),
       private_key_file: values.private_key_file, known_hosts_file: values.known_hosts_file, sudo: this.field("sudo").checked,
     };
-    if (openscap) scan.openscap = {
+    if (auto) {
+      this.startRecommendation(host.id, scan);
+      return;
+    }
+    if (openscap) scan.openscap = preset?.openscap || {
       distribution: values.scap_distribution, version: values.scap_version,
       profile_id: values.scap_profile_id, sha256: values.scap_sha256,
     };
@@ -1208,12 +1270,63 @@ class HostCompliance {
       limit: values.host_alias, check: true, bootstrap_python: this.field("bootstrap_python").checked,
       vars_files: values.vars_file ? [values.vars_file] : [],
     };
-    const label = baseline?.name || (openscap ? values.scap_profile_id : this.baselineId === "remote" ? this.projects.selectedName() : "Custom baseline");
+    const label = custom?.name || baseline?.name || preset?.name || (openscap ? values.scap_profile_id : this.baselineId === "remote" ? this.projects.selectedName() : "Custom baseline");
     this.launch({
       action, resource_id: host.id, baseline_id: baseline?.id || null, scan,
+      ...(preset ? { scap_preset_id: preset.id } : {}),
+      ...(custom ? { custom_profile: { id: custom.id, revision: custom.revision } } : {}),
       remediation, bootstrap_python: action === "preview" && this.field("bootstrap_python").checked,
       assessment_of: action === "assess" ? assessmentOf : null,
     }, label);
+  }
+
+  startRecommendation(resourceId, scan) {
+    const card = this.assessmentConversation();
+    card.controls.replaceChildren();
+    this.setCardTarget(card, scan, "Auto assessment");
+    const goal = this.el("compliance-auto-goal").value;
+    const request = { action: "recommend", goal, resource_id: resourceId, scan };
+    this.workflowError = null;
+    const id = this.inventory.startWorkflow("Identify the host platform for assessment", request, null, true);
+    if (!id) {
+      this.finishAssessmentCard("Could not start host detection. Check the connection and try again.");
+      return;
+    }
+    this.workflowId = id;
+    this.recommendation = { id, card, scan, resourceId, result: null };
+    this.text("compliance-status", "Checking the selected host's Linux release…");
+  }
+
+  finishRecommendation(type, payload) {
+    const { card, scan, result, resourceId } = this.recommendation;
+    this.recommendation = null;
+    this.workflowId = null;
+    this.assessmentCard = null;
+    const candidate = result && this.projects.catalog.find(item => item.id === result.id);
+    const detail = payload.stopped ? "Host detection stopped." : type === "user.message.rejected"
+      ? payload.detail : this.workflowError;
+    card.status.textContent = detail || (candidate ? `Recommended profile · ${candidate.name}`
+      : "No profile recommendation was received. Choose a profile manually or retry Auto assessment.");
+    if (!candidate || detail) return;
+    card.summary.append(this.node("p", "", result.reason));
+    const scanButton = this.cardButton(card, "Scan with recommended profile", () => {
+      const current = this.host();
+      const sameEndpoint = COMPLIANCE_SSH_FIELDS.every(name =>
+        name === "port" ? scan.port === Number(this.field(name).value) :
+          scan[name] === this.field(name).value.trim()) && scan.sudo === this.field("sudo").checked;
+      if (current?.id !== resourceId || current.entry.value !== scan.host || !sameEndpoint) {
+        card.status.textContent = "The selected SSH endpoint changed. Run Auto assessment for the current host.";
+        card.controls.replaceChildren();
+        return;
+      }
+      card.controls.replaceChildren();
+      if (candidate.openscap) this.selectScapPreset(candidate.id);
+      else this.projects.select(candidate.url);
+      this.scanHost();
+    }, true);
+    scanButton.classList.add("inventory-primary");
+    card.controls.append(scanButton);
+    card.moveToLatest();
   }
 
   launch(request, label) {
@@ -1257,12 +1370,16 @@ class HostCompliance {
   handleWorkflowEvent(type, payload, conversation = false) {
     this.projects.handleWorkflowEvent(type, payload);
     this.handleEvent(type, payload);
+    if (type === "compliance.recommended" && this.recommendation) {
+      this.recommendation.result = payload;
+      return;
+    }
     if (!conversation) {
       this.el("compliance-workflow-details").hidden = false;
       this.el("compliance-run-details").hidden = false;
     }
     if (type === "tool.start") {
-      const stages = { compliance_scan: this.savedRun?.stage === "verification" ? "Verifying baseline…" : "Assessing baseline…",
+      const stages = { exec: this.recommendation ? "Reading the host Linux release…" : "Working…", compliance_scan: this.savedRun?.stage === "verification" ? "Verifying baseline…" : "Assessing baseline…",
         ansible: this.run?.action === "preview" ? "Previewing changes…" : "Applying baseline…",
         write: "Preparing configuration…", ledger: "Updating engagement context…", recall: "Retrieving known context…" };
       this.text("compliance-status", stages[payload.name] || "Working…");
@@ -1283,6 +1400,10 @@ class HostCompliance {
   }
 
   handleEvent(type, payload) {
+    if (type === "compliance.custom.save") {
+      this.builder.handle(payload);
+      return;
+    }
     const projectPreparation = payload.message_id === this.projects.preparation?.id ? this.projects.preparation : null;
     this.projects.handle(type, payload);
     if (type === "compliance.datastream.inspect" || type === "compliance.ansible.check") {
@@ -1364,6 +1485,10 @@ class HostCompliance {
       return;
     }
     this.receiveAccess(type, payload);
+    if (this.recommendation?.id === payload.message_id && ["user.message.complete", "user.message.rejected"].includes(type)) {
+      this.finishRecommendation(type, payload);
+      return;
+    }
     if (type === "approval.request" && this.workflowId) this.text("compliance-status", "Approval required to continue.");
     if (payload.message_id === this.workflowId && ["user.message.complete", "user.message.rejected"].includes(type)) {
       const accessDiscovery = !this.run && !projectPreparation;
@@ -1479,7 +1604,8 @@ class HostCompliance {
     this.text("compliance-readiness-context", record.status === "running" ? "Checks performed before execution." : "Preflight checks recorded before execution; assessment outcomes are shown above.");
     this.el("compliance-readiness").replaceChildren(...(record.readiness || []).map(check => this.node("li", `compliance-check-${check.status}`, `${check.name}: ${check.detail}`)));
     const project = record.plan?.profile_bundle;
-    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
+    const scapSource = record.plan?.scap_source;
+    this.text("compliance-plan-summary", [record.plan?.changes || "Preparing plan…", scapSource ? `${scapSource.publisher} · SCAP Security Guide ${scapSource.release}` : "", project ? `${project.name} · version ${project.version || "unknown"} · ${project.dependencies.length} bundled ${project.dependencies.length === 1 ? "dependency" : "dependencies"}` : ""].filter(Boolean).join(" · "));
     const evidence = {};
     for (const phase of ["before", "after", "remediation"]) {
       if (record[phase]) evidence[phase] = Object.fromEntries(Object.entries(record[phase]).filter(([key]) => key.endsWith("artifact") || key === "artifact_directory" || key === "profile_sha256"));
@@ -1767,7 +1893,7 @@ class HostCompliance {
     }
     this.projects.deselect();
     this.selectResource(request.resource_id, false);
-    this.baselineId = request.scan.openscap ? "openscap" : (request.baseline_id || "custom");
+    this.baselineId = request.custom_profile?.id || request.scap_preset_id || (request.scan.openscap ? "openscap" : request.baseline_id || "custom");
     this.renderBaselines();
     this.renderSelection();
     for (const [key, value] of Object.entries(request.scan)) {
@@ -1777,7 +1903,7 @@ class HostCompliance {
       else field.value = value || "";
     }
     this.resetScap();
-    if (request.scan.openscap) {
+    if (request.scan.openscap && !request.scap_preset_id) {
       const { profile_id: id, sha256, distribution, version } = request.scan.openscap;
       this.field("scap_datastream").value = request.scan.profile;
       this.field("scap_sha256").value = sha256;
@@ -1798,8 +1924,11 @@ class HostCompliance {
     this.connectionSummary();
     this.setState();
     if (assess) {
-      this.assessmentOf = record.id;
-      this.start("assess");
+      if (request.custom_profile) this.launch({ ...request, assessment_of: record.id }, record.label);
+      else {
+        this.assessmentOf = record.id;
+        this.start("assess");
+      }
     }
     return true;
   }
@@ -1808,6 +1937,7 @@ class HostCompliance {
     const detail = "Connection lost. Resume the engagement to review saved results.";
     if (this.run && this.run.action !== "assess") this.finishWorkflowCard(this.run.card, detail);
     this.finishAssessmentCard(detail);
+    this.recommendation = null;
     this.pendingAssessment = null;
     this.ansibleAvailable = null;
     if (this.scapRequest?.type === "compliance.ansible.check") {

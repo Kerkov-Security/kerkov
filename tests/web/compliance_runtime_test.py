@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import shlex
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -15,6 +16,7 @@ from kerkov.core.approval_types import ToolApprovalResult
 from kerkov.core.cancellable_task import EventInterrupt, InterruptedByUser
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.custom_profiles import CustomProfile, CustomProfileStore
+from kerkov.core.compliance.recommendation import OS_RELEASE_PROBE
 from kerkov.core.compliance.scap_catalog import ScapPreset
 from kerkov.core.compliance.workflows import WorkflowRequest, WorkflowStore
 from kerkov.core.docker_command import CommandResult
@@ -26,6 +28,7 @@ from kerkov.web.runtime.compliance import (
     build_run,
     list_runs,
     read_evidence,
+    recommend_for_host,
 )
 from kerkov.web.runtime.events import WebEventBus, WorkflowEventBus
 
@@ -240,6 +243,67 @@ async def test_custom_profile_run_pins_saved_checks_and_reassesses_snapshot(tmp_
         assert (
             Path(retry.scan["profile"]) / "controls/checks.rb"
         ).read_bytes() == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("goal", "command_output", "profile_id"),
+    [
+        (
+            "stig",
+            "KERKOV_OS_RELEASE=Linux\nID=ubuntu\nVERSION_ID=24.04",
+            "mitre-ubuntu-2404-stig",
+        ),
+        (
+            "pci",
+            "** WARNING: connection is not using a post-quantum key exchange algorithm.\n"
+            "KERKOV_OS_RELEASE=Linux\nID=rhel\nVERSION_ID=9.9",
+            "pci-dss-rhel9-ssg-0.1.82",
+        ),
+    ],
+)
+async def test_auto_detection_uses_shared_tool_approval_on_bound_endpoint(
+    tmp_path, goal, command_output, profile_id
+):
+    session = _create_mock_session(tmp_path)
+    request = _create_mock_request(tmp_path, action="assess").model_dump()["scan"]
+    request.update(port=2222, profile="auto")
+    session.tools = [SimpleNamespace(name="exec")]
+    session.engine = SimpleNamespace(
+        execute_tool_call=AsyncMock(
+            return_value=(
+                ToolApprovalResult(approved=True),
+                ToolResult(
+                    success=True,
+                    output=command_output,
+                    metadata={"exit_code": 0},
+                ),
+            )
+        )
+    )
+    bus = WorkflowEventBus(session.bus, "detect")
+    content = {"action": "recommend", "resource_id": 1, "goal": goal, "scan": request}
+    await recommend_for_host(session, content, bus, EventInterrupt(), "detect")
+    call = session.engine.execute_tool_call.await_args
+    assert call.kwargs["approval"] is session.approval_strategy
+    assert call.kwargs["stop_sensitive"] is True
+    argv = shlex.split(call.args[1].parameters["command"])
+    assert argv[0] == "ssh" and "StrictHostKeyChecking=yes" in argv
+    assert argv[-5:] == [
+        "-p",
+        "2222",
+        "--",
+        "192.0.2.1",
+        OS_RELEASE_PROBE,
+    ]
+    (event,) = session.bus.drain_nowait()
+    assert event["payload"]["event_type"] == "compliance.recommended"
+    assert event["payload"]["payload"]["id"] == profile_id
+    with pytest.raises(ValueError, match="host changed"):
+        await recommend_for_host(
+            session, {**content, "resource_id": 9}, bus, EventInterrupt(), "detect"
+        )
+    assert session.engine.execute_tool_call.await_count == 1
 
 
 @pytest.mark.asyncio

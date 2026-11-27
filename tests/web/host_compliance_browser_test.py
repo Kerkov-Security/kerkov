@@ -925,8 +925,8 @@ def test_scan_host_recovers_access_then_starts_assessment_with_one_click(
     page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
     open_compliance(page)
     expect(page.locator("#compliance-baselines button:visible")).to_have_count(2)
-    expect(page.locator("#compliance-projects button:visible")).to_have_count(2)
-    expect(page.locator("#compliance-profile-search")).to_be_hidden()
+    expect(page.locator("#compliance-projects button:visible")).not_to_have_count(0)
+    expect(page.get_by_role("searchbox", name="Search profiles")).to_be_visible()
     expect(page.locator('[name="private_key_file"]')).to_be_hidden()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
     expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
@@ -1488,17 +1488,21 @@ def test_customize_can_filter_and_close_without_a_host(dashboard: Page):
     )
 
 
-def test_done_clears_hidden_profile_filters(dashboard: Page):
+def test_done_keeps_profile_filters_and_clear_restores_choices(dashboard: Page):
     page = dashboard
     open_compliance(page, configure=True)
     page.locator("#compliance-profile-search").fill("no matching profile")
     page.locator("#compliance-profile-source").select_option("local")
     expect(page.locator("#compliance-profile-empty")).to_be_visible()
     page.locator("#compliance-customize-done").click()
+    expect(page.locator("#compliance-profile-empty")).to_be_visible()
+    expect(page.locator("#compliance-profile-search")).to_have_value(
+        "no matching profile"
+    )
+    expect(page.locator("#compliance-profile-source")).to_have_value("local")
+    page.get_by_role("button", name="Clear profile filters").click()
     expect(page.locator("#compliance-profile-empty")).to_be_hidden()
     expect(page.locator('[data-compliance-baseline="linux-accounts"]')).to_be_visible()
-    expect(page.locator("#compliance-profile-search")).to_have_value("")
-    expect(page.locator("#compliance-profile-source")).to_have_value("all")
 
 
 @pytest.mark.parametrize("stopped", [False, True])

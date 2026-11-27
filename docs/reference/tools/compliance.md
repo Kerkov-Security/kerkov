@@ -208,6 +208,19 @@ Locate all built-in paths from the installed package:
 uv run python -c 'from kerkov.core.compliance.baselines import builtin_baselines; print(builtin_baselines())'
 ```
 
+### Custom profiles from the web console
+
+**New profile** on the Compliance screen builds an assessment from file,
+package, and service checks. Kerkov saves your checks under
+`COMPLIANCE_PROJECTS_DIR/custom/` and generates an InSpec snapshot at scan time.
+The current profile revision is checked before preparing a scan. Reassessment
+uses the snapshot stored with the original run.
+
+**Auto assessment** can recommend a profile from the catalog based on the
+target's Linux release and the selected assessment goal. A read-only SSH probe
+uses the current approval mode and trusted host key. The recommendation is
+shown in Conversation for review before the normal assessment begins.
+
 ## Prepare a profile and SSH access
 
 The default image is `cincproject/auditor:7`. Set `CINC_DOCKER_IMAGE` in your
@@ -218,17 +231,29 @@ It does not update an already-cached tag on each scan.
 
 ### Catalog and URL downloads
 
-For a listed community profile, select it and choose **Scan host**. Kerkov
-prepares the pinned profile on first use and continues to assessment once the
+For a listed community InSpec profile, select it and choose **Scan host**.
+Kerkov prepares the pinned profile on first use and continues to assessment once the
 prepared revision is verified. Preparation and assessment each use the current
 approval mode. The scan controls show preparation status and provide a
 **Profile source and dependencies** disclosure. Subsequent scans reuse the
 prepared copy.
 
-The catalog includes **Ubuntu 22.04 STIG** (MITRE SAF) and **Linux hardening**
-(DevSec). For your own public GitHub repository, paste the URL in
-**Customize → Profile search & imports** and choose **Validate URL**. Catalog and
-custom URLs follow the same preparation path.
+| Profile | Select for | Upstream |
+| --- | --- | --- |
+| Ubuntu 24.04 STIG | Ubuntu 24.04 LTS | [MITRE SAF](https://github.com/mitre/canonical-ubuntu-24.04-lts-stig-baseline) |
+| Ubuntu 22.04 STIG | Ubuntu 22.04 LTS | [MITRE SAF](https://github.com/mitre/canonical-ubuntu-22.04-lts-stig-baseline) |
+| RHEL 9 STIG | Red Hat Enterprise Linux 9 | [MITRE SAF](https://github.com/mitre/redhat-enterprise-linux-9-stig-baseline) |
+| RHEL 8 STIG | Red Hat Enterprise Linux 8 | [MITRE SAF](https://github.com/mitre/redhat-enterprise-linux-8-stig-baseline) |
+| Linux hardening | General Linux host checks | [DevSec](https://github.com/dev-sec/linux-baseline) |
+| CIS Linux (distribution independent) | CIS Distribution Independent Linux 2.0.0 | [DevSec](https://github.com/dev-sec/cis-dil-benchmark) |
+| OpenSSH hardening | Linux hosts running OpenSSH | [DevSec](https://github.com/dev-sec/ssh-baseline) |
+| Apache HTTP Server hardening | Linux hosts running Apache HTTP Server | [DevSec](https://github.com/dev-sec/apache-baseline) |
+| NGINX hardening | Linux hosts running NGINX | [DevSec](https://github.com/dev-sec/nginx-baseline) |
+
+Match the OS release or installed service before scanning. Community profile
+runs collect assessment evidence. For your own public GitHub repository, paste
+the URL in **Customize → Profile imports** and choose **Validate URL**. Catalog
+and custom URLs follow the same preparation path.
 
 URL validation checks HTTPS/GitHub syntax, public repository accessibility, a
 usable revision and an ordinary root `inspec.yml` with supported metadata. It
@@ -245,7 +270,7 @@ public GitHub repository root in `git` and a full commit in `ref` that is
 reachable from that repository's default branch.
 
 You can prepare the selected profile separately with **Download & prepare**
-under **Profile search & imports**. Normal tool approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
+under **Profile imports**. Normal tool approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
 during Cinc's offline check. Kerkov verifies that the reviewed commit is
 reachable from the repository's default branch or the branch or tag in the URL.
 It downloads that exact commit even if the branch has advanced, then rebuilds
@@ -599,6 +624,29 @@ A controller run manifest also records completion, failure or cancellation;
 its path is returned as `run_manifest_artifact`. SSH known-hosts paths must not
 contain double quotes, `%`, `$`, or control characters, which can change SSH's
 interpretation of the selected trust file.
+
+### PCI DSS community profiles
+
+The profile picker includes the [ComplianceAsCode
+PCI DSS v4.0.1 baseline](https://complianceascode.github.io/content-pages/guides/ssg-rhel9-guide-pci-dss.html)
+for RHEL 8, 9, and 10. Choose the card for the target's RHEL major release and
+select **Scan host**. The card supplies the datastream and profile selection.
+Expand **Profile source and dependencies** to see the source release and stream digest.
+
+The first scan downloads the [pinned SCAP Security Guide
+release](https://github.com/ComplianceAsCode/content/releases/tag/v0.1.82) to the
+controller (about 175 MB). Kerkov verifies the archive and the three selected
+datastreams with SHA-256 and caches the datastreams under
+`COMPLIANCE_PROJECTS_DIR/scap/`. Subsequent scans reverify cached content.
+Reassessment uses the original run's datastream snapshot. The approved
+OpenSCAP call checks the target's Red Hat distribution and matching major
+release before it stages and runs the reviewed content. Ansible is required on
+the controller. Target scanner installation uses the separate provisioning flow.
+
+These checks produce host configuration evidence for the selected baseline.
+PCI DSS validation uses the applicable reporting method from the organization's
+acquirer or payment brand.
+[PCI SSC validation guidance](https://www.pcisecuritystandards.org/faqs/1473/).
 
 ### Provision a missing scanner
 
