@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from kerkov.core.automation.profiles import confined_path
+from kerkov.core.compliance.custom_profiles import CustomProfileRef
 from kerkov.core.private_files import prepare_private_parent
 from kerkov.tools.ansible_tool import AnsibleParams
 from kerkov.tools.compliance_scan_tool import ComplianceScanParams
@@ -30,6 +31,8 @@ class WorkflowRequest(BaseModel):
     action: Literal["assess", "preview", "apply"]
     resource_id: int = Field(gt=0, strict=True)
     baseline_id: str | None = Field(default=None, max_length=64)
+    scap_preset_id: str | None = Field(default=None, max_length=64)
+    custom_profile: CustomProfileRef | None = None
     scan: ComplianceScanParams
     remediation: AnsibleParams | None = None
     bootstrap_python: bool = False
@@ -44,6 +47,12 @@ class WorkflowRequest(BaseModel):
 
     def signature(self) -> str:
         data = self.model_dump(exclude={"action", "preview_id", "assessment_of"})
+        for key in (
+            "scap_preset_id",
+            "custom_profile",
+        ):
+            if data[key] is None:
+                data.pop(key)
         data["scan"] = self.scan_settings()
         if data["remediation"]:
             data["remediation"].pop("check", None)

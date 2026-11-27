@@ -8,6 +8,7 @@ from django.shortcuts import render
 
 from kerkov.core.compliance.baselines import builtin_baselines
 from kerkov.core.compliance.profile_sources import profile_catalog
+from kerkov.core.compliance.scap_catalog import scap_catalog
 from kerkov.core.session.approval_mode_manager import APPROVAL_MODE_DESCRIPTIONS
 from kerkov.core.session.modes import BLUE_MODE, PURPLE_MODE, RED_MODE
 
@@ -23,7 +24,7 @@ def dashboard(request: HttpRequest) -> HttpResponse:
             "modes": modes,
             "default_mode": PURPLE_MODE,
             "compliance_baselines": builtin_baselines(),
-            "compliance_projects": profile_catalog(),
+            "compliance_projects": [*profile_catalog(), *scap_catalog()],
             "approval_modes": [
                 {"value": mode.value, "description": description}
                 for mode, description in APPROVAL_MODE_DESCRIPTIONS.items()
