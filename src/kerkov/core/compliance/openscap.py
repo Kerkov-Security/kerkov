@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,11 @@ XCCDF_NAMESPACES = (
     "http://checklists.nist.gov/xccdf/1.1",
 )
 ARF_NAMESPACE = "http://scap.nist.gov/schema/asset-reporting-format/1.1"
-DATASTREAM_TAG = "{http://scap.nist.gov/schema/scap/source/1.2}data-stream-collection"
+DATASTREAM_NS = "{http://scap.nist.gov/schema/scap/source/1.2}"
+DATASTREAM_TAG = DATASTREAM_NS + "data-stream-collection"
+PROFILE_ID_PATTERN = r"^xccdf_[A-Za-z0-9_.:-]+$"
+MAX_PROFILE_ID_CHARS = 1024
+MAX_DISCOVERED_PROFILES = 512
 RESULTS = (
     "pass",
     "fail",
@@ -147,23 +152,89 @@ def _parse_xml(raw: bytes, label: str) -> Any:
     return root
 
 
-def datastream_bytes(path: Path, expected_sha256: str, profile_id: str) -> bytes:
-    """Read the exact reviewed SCAP source datastream before staging it."""
+def _read_datastream(path: Path) -> bytes:
     with path.open("rb") as handle:
         raw = handle.read(MAX_REPORT_BYTES + 1)
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("OpenSCAP datastream exceeds the 64 MiB processing limit")
-    if hashlib.sha256(raw).hexdigest() != expected_sha256:
-        raise ValueError("OpenSCAP datastream does not match the reviewed SHA-256")
+    return raw
+
+
+def _datastream_root(raw: bytes) -> Any:
     root = _parse_xml(raw, "datastream")
     if root.tag != DATASTREAM_TAG:
         raise ValueError("Choose a self-contained SCAP source datastream")
-    profiles = (
-        item for ns in XCCDF_NAMESPACES for item in root.iter(f"{{{ns}}}Profile")
+    return root
+
+
+def _default_profiles(root: Any) -> dict[str, str]:
+    ref = root.find(
+        f"{DATASTREAM_NS}data-stream/{DATASTREAM_NS}checklists/"
+        f"{DATASTREAM_NS}component-ref"
     )
-    if not any(item.get("id") == profile_id for item in profiles):
+    href = ref.get("{http://www.w3.org/1999/xlink}href", "") if ref is not None else ""
+    components = [
+        component
+        for component in root.iterchildren(DATASTREAM_NS + "component")
+        if href.startswith("#") and href[1:] == component.get("id")
+    ]
+    if len(components) != 1:
         raise ValueError(
-            "The SCAP datastream does not contain the selected XCCDF profile"
+            "The default OpenSCAP checklist must reference one embedded component"
+        )
+    benchmarks = [
+        benchmark
+        for ns in XCCDF_NAMESPACES
+        for benchmark in components[0].iterchildren(f"{{{ns}}}Benchmark")
+    ]
+    if len(benchmarks) != 1:
+        raise ValueError(
+            "The default OpenSCAP checklist must contain one XCCDF Benchmark"
+        )
+    benchmark = benchmarks[0]
+    prefix = benchmark.tag.removesuffix("Benchmark")
+    profiles = {}
+    for item in benchmark.iterchildren(prefix + "Profile"):
+        profile_id = item.get("id", "")
+        if (
+            item.get("abstract") in {"true", "1"}
+            or len(profile_id) > MAX_PROFILE_ID_CHARS
+            or not re.fullmatch(PROFILE_ID_PATTERN, profile_id)
+        ):
+            continue
+        if profile_id in profiles:
+            raise ValueError(
+                "The default OpenSCAP checklist contains duplicate profile IDs"
+            )
+        if len(profiles) >= MAX_DISCOVERED_PROFILES:
+            raise ValueError(
+                "The default OpenSCAP checklist contains too many profiles"
+            )
+        profiles[profile_id] = _text(item.find(prefix + "title"))
+    if not profiles:
+        raise ValueError(
+            "The default OpenSCAP checklist has no selectable XCCDF profiles"
+        )
+    return profiles
+
+
+def inspect_datastream(path: Path) -> tuple[str, list[dict[str, str]]]:
+    """Return the digest and selectable profiles from OpenSCAP's default checklist."""
+    raw = _read_datastream(path)
+    profiles = _default_profiles(_datastream_root(raw))
+    return hashlib.sha256(raw).hexdigest(), [
+        {"id": profile_id, "title": title} for profile_id, title in profiles.items()
+    ]
+
+
+def datastream_bytes(path: Path, expected_sha256: str, profile_id: str) -> bytes:
+    """Read the exact reviewed SCAP source datastream before staging it."""
+    raw = _read_datastream(path)
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("OpenSCAP datastream does not match the reviewed SHA-256")
+    if profile_id not in _default_profiles(_datastream_root(raw)):
+        raise ValueError(
+            "The default OpenSCAP checklist does not contain the selected XCCDF profile"
         )
     return raw
 

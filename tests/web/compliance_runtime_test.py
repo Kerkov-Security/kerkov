@@ -112,10 +112,8 @@ async def test_scap_plan_requires_only_ansible_and_rejects_changed_content(tmp_p
     original = _create_mock_request(tmp_path, action="assess").model_dump()
     profile = "xccdf_example_profile_server"
     raw = (
-        '<data-stream-collection xmlns="http://scap.nist.gov/schema/scap/source/1.2">'
-        f'<Profile xmlns="http://checklists.nist.gov/xccdf/1.2" id="{profile}"/>'
-        "</data-stream-collection>"
-    ).encode()
+        Path(__file__).parents[1] / "core/compliance/fixtures/openscap-datastream.xml"
+    ).read_bytes()
     datastream = tmp_path / "datastream.xml"
     datastream.write_bytes(raw)
     original["baseline_id"] = None
@@ -340,7 +338,14 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
         return ToolResult(
             success=True,
             output="{}",
-            metadata={"check": True, "bootstrap_python": params.bootstrap_python},
+            metadata={
+                "check": True,
+                "bootstrap_python": params.bootstrap_python,
+                "totals": {"changed": 1},
+                "changed_tasks": [
+                    {"host": "selected_asset", "task": "Set permissions"}
+                ],
+            },
         )
 
     try:
@@ -368,6 +373,9 @@ async def test_structured_workflow_uses_shared_engine_tools_and_history(tmp_path
             )
         record = WorkflowStore(session.workspace_path).list()[0]
         assert record["status"] == "previewed"
+        assert record["remediation"]["changed_tasks"] == [
+            {"host": "selected_asset", "task": "Set permissions"}
+        ]
         assert calls == ["scan", "preview"]
         assert any(
             m.role == "tool" and m.context_only for m in session.conversation_history
