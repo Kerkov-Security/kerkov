@@ -393,10 +393,17 @@ profile screen is needed.
 
 **Compliance** is under **Workflows** in the sidebar. The welcome screen's
 **Assess compliance** button opens the same workspace, and host resource profiles
-have a **Make compliant** shortcut. Select an asset or target host. Kerkov retrieves
-recorded SSH access automatically; **Find assessment details** searches the existing
-engagement and conversation when those references are missing. When details are
-available, choose **Scan host**. Discovery does not start a scan or apply fixes.
+have a **Make compliant** shortcut. Use the **Host** picker above setup and
+results to switch to another host. Switching opens setup for that host and
+retrieves its recorded SSH access. The selected benchmark carries over.
+**Add host** opens the inventory form and
+returns to Compliance with the saved host selected. **Scan host** opens
+Conversation with the assessment. Kerkov uses the sole recorded host when
+available. If there are multiple hosts or SSH endpoints, choose one in
+Conversation. If the engagement has no host, enter its hostname or IP address
+there and Kerkov records it for you. SSH access lookup, preparation, approvals,
+progress and Stop stay in Conversation. Choose **View assessment results**
+there when the assessment ends to open the saved report in Compliance.
 The workspace lists each normalized
 IP/domain host once, preferring its asset record when both roles exist.
 The terminal runs the same workflow and reads the same saved runs through
@@ -408,14 +415,18 @@ detailed section for SSH key-file references, profile settings and remediation
 options; **Done** closes it while preserving your edits. **Profile search & imports**
 contains local profiles, search filters and GitHub imports. Filtering keeps the
 selected profile and connection details. **Complete missing settings** opens and focuses
-the first missing field. Multiple recorded endpoints require an explicit choice.
+the first missing field. When hosts share an address, choose the intended port
+from **SSH endpoint** beside **Host** before scanning. Saved results show the
+port they assessed.
 Available settings do not confirm access: the workflow checks the connection when
 it runs.
 
-For a reviewed SCAP benchmark, select **SCAP datastream** and enter its local
-path, SHA-256, XCCDF profile ID and target platform. The panel uses OpenSCAP
-on the target and offers assessment only. If the scanner is missing, request
-its installation separately in chat. See the
+For a reviewed SCAP benchmark, select **SCAP datastream**, enter its local path,
+and choose **Inspect datastream**. The controller computes the SHA-256, lists
+profiles from the default checklist, and checks whether Ansible is available.
+Select a profile and enter the target distribution and version. The approved
+assessment checks SSH access, target prerequisites and OpenSCAP. If the scanner
+is missing, request its installation separately in chat. See the
 [OpenSCAP workflow](../reference/tools/compliance.md#assess-with-openscap).
 
 After a saved assessment loads, setup collapses into a host/profile summary.
@@ -425,8 +436,10 @@ separately. Failed checks appear first with readable names and a single **Result
 column for assessment-only runs. Select a check for its full ID and saved evidence.
 Preview/apply workflows retain their before/after comparison.
 Select the passed, failed, or error count to filter loaded checks by that outcome.
-**Clear check filters** restores all loaded checks. Counts describe the saved
-report; the check list can be limited to 200 entries.
+**Clear check filters** restores the full list. Search, filter, or page through
+the verified evidence. **Outside profile** shows OpenSCAP rules the selected
+profile did not run. Older runs without original evidence references show
+their saved summary.
 
 **Run details** contains preflight readiness, plan hashes, evidence paths and logs;
 preflight messages describe checks performed before execution. **Previous
@@ -492,25 +505,29 @@ container names, DNS/deployment relationships, or published-port mappings. Raw
 keys stay in their existing files; normal approvals still govern execution.
 
 - **Scan host** checks the selected baseline without requesting remediation.
-  **Community profiles** offers MITRE's Ubuntu STIG profile and DevSec's Linux
-  baseline. Choose one or paste a public GitHub URL, validate it, and review
-  its revision and pinned dependency sources before selecting **Download & prepare**.
-  To update a ready copy, choose **Check for updates**, review the installed and
-  upstream sources, then choose **Update to …**. A failed refresh keeps the previous copy. Profile
-  preparation is separate from assessing a target. See the [catalog and URL workflow](../reference/tools/compliance.md#catalog-and-url-downloads).
+  Under **Community profiles**, choose a profile and select **Scan host**. The
+  first scan checks the repository and prepares the pinned revision before
+  assessing the host. Expand **Profile source and dependencies** next to the
+  scan controls to inspect the revision. Preparation and assessment each use
+  the normal tool approvals. Later scans use the prepared copy. Use
+  **Customize → Profile search & imports** to validate your own public GitHub URL
+  or explicitly update a prepared profile. A failed update keeps the previous
+  copy. See [catalog and URL downloads](../reference/tools/compliance.md#catalog-and-url-downloads).
   **Existing InSpec project** accepts downloaded or local projects, including
   prepared offline dependencies. Enter the project directory and any inputs
   file; Ansible settings are optional for assessment. See
   [reusing an existing project](../reference/tools/compliance.md#reuse-an-existing-profile-project).
-- After a scan finds failed checks, **Preview fixes** checks it and requests Ansible
-  check mode. Fix actions remain hidden before that scan and when all checks pass.
-  Check mode can
-  still make changes; inspect the actual tool calls and results.
-- **Review fixes** restores a completed preview for review.
-  **Apply fixes** requires its matching settings and file hashes, runs
-  an initial assessment, requests the paired playbook when needed, then reassesses
-  against the initial profile snapshot with the same SHA-256. A successful
-  playbook recap alone is not verification.
+- After a scan finds failed checks with paired remediation, **Preview fixes**
+  opens Conversation and requests Ansible check mode. The preview card identifies
+  the SSH endpoint, shows tasks that Ansible predicts will change, and lists the
+  proposed settings for failed built-in checks. Check mode can still make
+  changes. **View preview evidence** opens the saved run, where you can open the
+  Ansible log.
+- **Review fixes** reopens a saved preview from Compliance. Select **Apply fixes**
+  on its conversation card. The workflow validates the same endpoint, settings
+  and file hashes, assesses before applying the paired playbook, then verifies
+  against the same profile snapshot. The remediation card shows tasks Ansible
+  reported changing and the follow-up assessment outcome when available.
 
 **Allow installing missing Python 3 during apply** is unchecked by default.
 When enabled, remediation checks for a compatible interpreter over raw SSH before

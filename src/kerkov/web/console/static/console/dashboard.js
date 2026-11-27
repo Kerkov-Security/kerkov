@@ -52,7 +52,23 @@ let followingLatest = true;
 const inventoryPanel = new InventoryPanel({
   send: sendSocketEvent,
   requestId: createMessageId,
-  startWorkflow: (message, workflowRequest = null, projectRequest = null) => submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest, projectRequest }) ? pendingSubmission.id : null,
+  startWorkflow: (message, workflowRequest = null, projectRequest = null, conversationWorkflow = false) =>
+    submitUserMessage(message, { showInConversation: false, preserveDraft: true, workflow: true, workflowRequest, projectRequest, conversationWorkflow }) ? pendingSubmission.id : null,
+  appendComplianceCard: (title, body) => {
+    const article = appendCommandReply(title, { body });
+    return {
+      article,
+      moveToLatest: () => {
+        if (article.parentElement !== stream) return;
+        if (article !== stream.lastElementChild) {
+          const focused = document.activeElement === article;
+          stream.append(article);
+          if (focused) article.focus({ preventScroll: true });
+        }
+        if (followingLatest && inventoryPanel.view === "conversation") scrollToLatest();
+      },
+    };
+  },
   onPendingChange: syncControls,
   onViewChange: (view) => {
     resizeInput();
@@ -535,8 +551,12 @@ function findApproval(approvalId) {
   );
 }
 
+function workflowUsesCompliancePanel() {
+  return Boolean(pendingSubmission?.workflow && !pendingSubmission.conversationWorkflow);
+}
+
 function syncApprovalTray() {
-  const workflow = Boolean(pendingSubmission?.workflow);
+  const workflow = workflowUsesCompliancePanel();
   const host = document.querySelector(workflow ? "#compliance-approval-host" : "#conversation-approval-host");
   if (approvalTray.parentElement !== host) host.append(approvalTray);
   approvalTray.hidden = approvalList.children.length === 0;
@@ -551,7 +571,7 @@ function disableApprovalActions(row) {
 
 function appendApproval(payload) {
   const wasViewingInventory = inventoryPanel.view !== "conversation";
-  inventoryPanel.showView(pendingSubmission?.workflow ? "compliance" : "conversation", false);
+  inventoryPanel.showView(workflowUsesCompliancePanel() ? "compliance" : "conversation", false);
   const row = document.createElement("div");
   row.className = "activity-item approval";
   row.dataset.approvalId = payload.approval_id;
@@ -691,7 +711,7 @@ function syncControls() {
   stopButton.textContent = stopping ? "Stopping…" : "Stop";
   stopButton.setAttribute("aria-label", stopping ? "Stopping main run" : "Stop main run");
   const workflowStop = document.querySelector("#compliance-stop");
-  workflowStop.hidden = !canStop || !pendingSubmission?.workflow;
+  workflowStop.hidden = !canStop || !workflowUsesCompliancePanel();
   workflowStop.disabled = !canStop || stopping;
   workflowStop.textContent = stopping ? "Stopping…" : "Stop workflow";
   syncApprovalTray();
@@ -870,7 +890,7 @@ function renderCommandHelp() {
   appendCommandReply("Commands", { meta: "Type these in the composer", body: list });
 }
 
-function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null } = {}) {
+function submitUserMessage(message, { showInConversation = true, preserveDraft = false, workflow = false, workflowRequest = null, projectRequest = null, conversationWorkflow = false } = {}) {
   const normalized = message.trim();
   if (!normalized || busy || engagementPanel.switching || inventoryPanel.saving || providerPanel.switching || providerPanel.saving || !sessionReady || !socketIsOpen()) {
     return false;
@@ -890,6 +910,7 @@ function submitUserMessage(message, { showInConversation = true, preserveDraft =
     showInConversation,
     preserveDraft,
     workflow,
+    conversationWorkflow,
     canStop: false,
     stopping: false,
     focusTarget: document.activeElement,
@@ -930,7 +951,12 @@ function handleSocketEvent(data) {
   const payload = data.payload || {};
   if (data.type === "compliance.event") {
     if (!pendingSubmission?.workflow || payload.message_id !== pendingSubmission.id) return;
-    inventoryPanel.compliance.handleWorkflowEvent(payload.event_type, payload.payload || {});
+    const detail = payload.payload || {};
+    const conversation = pendingSubmission.conversationWorkflow;
+    inventoryPanel.compliance.handleWorkflowEvent(payload.event_type, detail, conversation);
+    if (conversation && payload.event_type === "assistant.message") {
+      completeAssistantMessage(detail);
+    }
     if (payload.event_type === "tool.result") inventoryPanel.refresh();
     if (payload.event_type === "token.usage") tokenState.textContent = Number(payload.payload.total_tokens || 0).toLocaleString();
     return;
@@ -1081,7 +1107,7 @@ function handleSocketEvent(data) {
     }
     pendingSubmission.stopping = data.type === "user.message.stopping";
     if (!pendingSubmission.stopping && pendingSubmission.workflow) {
-      inventoryPanel.compliance.handleWorkflowEvent("error", { detail: payload.detail || "Unable to stop the workflow. Try again." });
+      inventoryPanel.compliance.handleWorkflowEvent("error", { detail: payload.detail || "Unable to stop the workflow. Try again." }, pendingSubmission.conversationWorkflow);
     } else if (!pendingSubmission.stopping) {
       appendActivity("Unable to stop run", true, payload.detail || "Try stopping the run again.");
     }

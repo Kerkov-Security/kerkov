@@ -330,7 +330,7 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     )
     settings = record["request"]["scan"]["openscap"]
     expect(page.get_by_label("Datastream SHA-256")).to_have_value(settings["sha256"])
-    expect(page.locator('[name="scap_profile_id"]')).to_have_value(
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(
         settings["profile_id"]
     )
     expect(page.get_by_role("button", name="Scan host", exact=True)).to_be_visible()
