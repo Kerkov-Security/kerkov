@@ -635,9 +635,14 @@ class HostCompliance {
       (control.after && control.after !== "unassessed" ? control.after : control.before) === "failed");
   }
 
+  isPciFixSource(record) {
+    const request = record?.request;
+    return !!request?.scap_preset_id && request.scan.openscap?.profile_id === "xccdf_org.ssgproject.content_profile_pci-dss";
+  }
+
   canPreviewFixes(record) {
     const remediation = record?.request.remediation;
-    return this.hasFailedChecks(record) && !!(record.request.baseline_id ||
+    return this.hasFailedChecks(record) && !!(this.isPciFixSource(record) || record.request.baseline_id ||
       (remediation?.profile && remediation.playbook && remediation.limit));
   }
 
@@ -670,7 +675,7 @@ class HostCompliance {
       (this.el("compliance-setup").open && available);
     resultPreview.disabled = !this.inventory.connected || (canPreview && (!this.inventory.canWrite() || !!this.readiness.blockers.length));
     this.el("compliance-preview-warning").hidden = preview.hidden;
-    const checkMode = canPreview;
+    const checkMode = canPreview && !this.isPciFixSource(record);
     this.el("compliance-result-preview-warning").hidden = resultPreview.hidden || !checkMode;
     if (checkMode) resultPreview.setAttribute("aria-describedby", "compliance-result-preview-warning");
     else resultPreview.removeAttribute("aria-describedby");
@@ -970,19 +975,28 @@ class HostCompliance {
     if (card.action !== "assess") this.renderRemediationSummary(card, record);
     if (card.action === "assess" && this.canPreviewFixes(record)) {
       const preview = this.cardButton(card, "Preview fixes", () => this.previewSavedRun(record), true);
-      const warning = this.node("p", "compliance-caption", this.el("compliance-result-preview-warning").textContent);
-      warning.id = `compliance-chat-preview-warning-${record.id}`;
-      card.summary.append(warning);
-      preview.setAttribute("aria-describedby", warning.id);
+      if (!this.isPciFixSource(record)) {
+        const warning = this.node("p", "compliance-caption", this.el("compliance-result-preview-warning").textContent);
+        warning.id = `compliance-chat-preview-warning-${record.id}`;
+        card.summary.append(warning);
+        preview.setAttribute("aria-describedby", warning.id);
+      }
       card.controls.append(preview);
     } else if (card.action === "assess" && this.hasFailedChecks(record)) {
       card.controls.append(this.cardButton(card, "Review fixes", () => this.reviewFixes(record)));
     }
     if (card.action === "preview" && record.status === "previewed") {
       this.previewCards.set(record.id, card);
-      const apply = this.cardButton(card, "Apply fixes", () => this.applyPreview(card, record), true);
-      apply.classList.add("inventory-primary");
-      card.controls.append(apply);
+      const fixes = record.plan?.scap_fixes;
+      if (!fixes || fixes.selected.length) {
+        const apply = this.cardButton(card, "Apply fixes", () => this.applyPreview(card, record), true);
+        apply.classList.add("inventory-primary");
+        card.controls.append(apply);
+        if (fixes) this.renderScapFixPicker(card, record, apply);
+        if (fixes && record.request.scap_rule_ids) {
+          card.controls.append(this.cardButton(card, "Preview Auto fixes", () => this.previewScapFixes(record), true));
+        }
+      }
     }
     const link = { assess: "View assessment results", preview: "View preview evidence", apply: "View remediation results" }[card.action];
     card.controls.append(this.cardButton(card, link, () => {
@@ -996,6 +1010,10 @@ class HostCompliance {
     const preview = card.action === "preview";
     const recap = record.remediation;
     card.summary.replaceChildren();
+    if (preview && record.plan?.scap_fixes) {
+      this.renderScapFixSummary(card, record);
+      return;
+    }
     if (Number.isInteger(recap?.totals?.changed)) {
       const count = recap.totals.changed;
       const changes = `${count || "no"} task ${count === 1 ? "change" : "changes"}`;
@@ -1030,9 +1048,85 @@ class HostCompliance {
     }
   }
 
+  renderScapFixSummary(card, record) {
+    const fixes = record.plan.scap_fixes;
+    const selected = new Set(fixes.selected);
+    const mode = record.request.scap_rule_ids ? "Selected fixes" : "Auto fixes";
+    card.summary.append(this.node("p", "", `${mode} · ${selected.size} failed ${selected.size === 1 ? "check" : "checks"} · ${fixes.task_count} planned ${fixes.task_count === 1 ? "task" : "tasks"}.`));
+    if (selected.size) {
+      const planned = this.node("details", "", "");
+      const ruleList = this.node("ul", "compliance-fix-scroll", "");
+      for (const fix of fixes.available) {
+        if (!selected.has(fix.id)) continue;
+        const item = this.node("li", "", "");
+        const tasks = this.node("ul", "", "");
+        for (const task of fix.tasks) tasks.append(this.node("li", "", task));
+        item.append(this.node("strong", "", fix.title), tasks);
+        ruleList.append(item);
+      }
+      planned.append(this.node("summary", "", "Planned changes"));
+      const modules = Object.entries(fixes.modules || {});
+      if (modules.length) {
+        const versions = modules.map(([name, source]) => name + " " + source.version);
+        planned.append(this.node("p", "compliance-caption", "Pinned Ansible modules · " + versions.join(", ")));
+      }
+      planned.append(ruleList);
+      card.summary.append(this.node("p", "compliance-caption",
+        "This preview uses saved evidence. Applying can change system, authentication, and network settings."), planned);
+    }
+    if (fixes.manual.length) {
+      const manual = this.node("details", "", "");
+      const list = this.node("ul", "compliance-fix-scroll", "");
+      for (const fix of fixes.manual) list.append(this.node("li", "", `${fix.title} · ${fix.reason}`));
+      manual.append(this.node("summary", "", `${fixes.manual.length} checks need manual review`), list);
+      card.summary.append(manual);
+    }
+  }
+
+  renderScapFixPicker(card, record, apply) {
+    const fixes = record.plan.scap_fixes;
+    const picker = this.node("details", "", "");
+    const options = this.node("fieldset", "compliance-fix-picker compliance-fix-scroll", "");
+    options.append(this.node("legend", "", "Checks to fix"));
+    const selected = new Set(record.request.scap_rule_ids || []);
+    for (const fix of fixes.available) {
+      const label = this.node("label", "", "");
+      const input = this.node("input", "", "");
+      input.type = "checkbox";
+      input.value = fix.id;
+      input.checked = selected.has(fix.id);
+      label.append(input, this.node("span", "", fix.title));
+      options.append(label);
+    }
+    const status = this.node("p", "compliance-caption", "");
+    status.setAttribute("role", "status");
+    const preview = this.cardButton(card, "Preview selected fixes", () => {
+      const ids = Array.from(options.querySelectorAll("input:checked"), input => input.value);
+      if (ids.length) this.previewScapFixes(record, ids);
+      else status.textContent = "Select at least one check to preview.";
+    }, true);
+    picker.append(this.node("summary", "", "Choose fixes"), options, status, preview);
+    picker.addEventListener("toggle", () => { apply.hidden = picker.open; });
+    card.summary.append(picker);
+  }
+
+  previewScapFixes(record, selected = null) {
+    if (!this.inventory.canWrite() || !this.savedAssetMatches(record)) return;
+    const request = record.request;
+    this.launch({
+      ...request,
+      action: "preview",
+      assessment_of: null,
+      preview_id: null,
+      scap_fixes_of: record.status === "previewed" ? request.scap_fixes_of : record.id,
+      scap_rule_ids: selected,
+    }, this.profileLabel(record));
+  }
+
   previewSavedRun(record) {
     if (!this.canPreviewFixes(record)) return;
-    if (this.restoreSettings(record)) this.start("preview");
+    if (this.isPciFixSource(record)) this.previewScapFixes(record);
+    else if (this.restoreSettings(record)) this.start("preview");
   }
 
   reviewPreview(record) {

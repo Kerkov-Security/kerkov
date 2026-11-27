@@ -445,6 +445,111 @@ def test_failed_community_scan_opens_evidence_review_directly(dashboard: Page, r
     expect(card.get_by_role("button", name="Apply fixes")).to_have_count(0)
 
 
+def test_pci_preview_offers_auto_and_selective_fixes(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    assessment = show_failed_assessment(page)
+    assessment["label"] = "PCI DSS v4.0.1 · RHEL 9"
+    assessment["request"].update(
+        baseline_id=None, scap_preset_id="pci-dss-rhel9-ssg-0.1.82"
+    )
+    assessment["request"]["scan"]["openscap"] = {
+        "profile_id": "xccdf_org.ssgproject.content_profile_pci-dss"
+    }
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [assessment]}
+    )
+    page.get_by_role("button", name="Preview fixes", exact=True).click()
+    launch = last_request(page, "compliance.run")
+    auto_request = launch["workflow_request"]
+    assert auto_request["scap_fixes_of"] == assessment["id"]
+    assert auto_request["scap_rule_ids"] is None
+    assert auto_request["scan"]["port"] == 2222
+    auto = {
+        **assessment,
+        "id": "b" * 32,
+        "status": "previewed",
+        "request": auto_request,
+        "plan": {
+            "scap_fixes": {
+                "selected": ["rule-1", "rule-2"],
+                "modules": {"ansible.posix.sysctl": {"version": "2.1.0"}},
+                "available": [
+                    {
+                        "id": "rule-1",
+                        "title": "Protect configuration file",
+                        "tasks": ["Set file permissions"],
+                    },
+                    {
+                        "id": "rule-2",
+                        "title": "Set audit policy",
+                        "tasks": ["Enable auditing"],
+                    },
+                ],
+                "manual": [
+                    {
+                        "id": "rule-3",
+                        "title": "Disable root SSH",
+                        "reason": "SSH connection uses root",
+                    }
+                ],
+                "task_count": 2,
+            },
+        },
+    }
+
+    def complete(run, message_id):
+        emit_socket(
+            page,
+            "compliance.updated",
+            {
+                "context_id": "context-1",
+                "message_id": message_id,
+                "run": run,
+            },
+        )
+        emit_socket(page, "user.message.complete", {"message_id": message_id})
+
+    complete(auto, launch["message_id"])
+    card = page.get_by_role("article", name="Compliance preview").last
+    expect(card).to_contain_text("Auto fixes · 2 failed checks")
+    card.get_by_text("Planned changes", exact=True).click()
+    expect(
+        card.get_by_text("Pinned Ansible modules · ansible.posix.sysctl 2.1.0")
+    ).to_be_visible()
+    expect(card.get_by_role("button", name="Apply fixes")).to_be_enabled()
+    card.get_by_text("Choose fixes", exact=True).click()
+    expect(card.get_by_role("button", name="Apply fixes")).to_be_hidden()
+    card.get_by_role("checkbox", name="Protect configuration file").check()
+    card.get_by_role("button", name="Preview selected fixes").click()
+    launch = last_request(page, "compliance.run")
+    assert launch["workflow_request"]["scap_rule_ids"] == ["rule-1"]
+    assert launch["workflow_request"]["scap_fixes_of"] == assessment["id"]
+    subset = {
+        **auto,
+        "id": "c" * 32,
+        "request": launch["workflow_request"],
+        "plan": {
+            "scap_fixes": {
+                **auto["plan"]["scap_fixes"],
+                "selected": ["rule-1"],
+                "modules": {},
+                "task_count": 1,
+            }
+        },
+    }
+    complete(subset, launch["message_id"])
+    card = page.get_by_role("article", name="Compliance preview").last
+    expect(card).to_contain_text("Selected fixes · 1 failed check")
+    card.get_by_role("button", name="Apply fixes").click()
+    apply = last_request(page, "compliance.run")["workflow_request"]
+    assert apply["preview_id"] == subset["id"]
+    assert apply["scap_fixes_of"] == assessment["id"]
+    assert apply["scap_rule_ids"] == ["rule-1"]
+    assert apply["scan"]["port"] == 2222
+
+
 @pytest.mark.parametrize("outcome", ["denied", "stopped", "replaced"])
 def test_community_scan_stops_when_approved_preparation_cannot_be_used(
     dashboard, outcome

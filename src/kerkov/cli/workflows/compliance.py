@@ -126,6 +126,8 @@ def reassess_request(record: Dict[str, Any]) -> WorkflowRequest:
         preview_id=None,
         remediation=None,
         bootstrap_python=False,
+        scap_fixes_of=None,
+        scap_rule_ids=None,
     )
     return validated(data)
 
@@ -313,12 +315,13 @@ async def start_run(
         # The engine only watches for Escape/Ctrl-C inside its turn; without the
         # watcher here, Ctrl-C during readiness would exit the whole CLI.
         await run_interruptible(run.prepare(), cli.input_manager)
-        await cli.run_workflow_turn(
-            run.plan_message(),
-            approval=run,
-            output=run.output,
-            overlay=definition.overlay,
-        )
+        if not run.saved_evidence_preview:
+            await cli.run_workflow_turn(
+                run.plan_message(),
+                approval=run,
+                output=run.output,
+                overlay=definition.overlay,
+            )
     except InterruptedByUser:
         pass
     except Exception as exc:
