@@ -10,7 +10,9 @@ import pytest
 
 from kerkov.core.compliance.cinc_report import decode_report, parse_report
 from kerkov.core.compliance.review import (
+    ControlQuery,
     ReviewEvidence,
+    browse_controls,
     build_report,
     export_report,
     review_control,
@@ -286,6 +288,18 @@ def test_openscap_html_and_json_exports_include_bounded_benchmark_guidance(tmp_p
         assert "Set PermitRootLogin to no" in exported["body"]
         assert "raw-secret" not in exported["body"]
     assert "Status: failed" in export_report(tmp_path, record, "html")["body"]
+    page = browse_controls(tmp_path, record, ControlQuery(impact="unknown"))
+    assert page["total"] == len(summary["controls"])
+    assert all(control["impact"] is None for control in page["controls"])
+
+    outside = browse_controls(tmp_path, record, ControlQuery(outcome="outside_profile"))
+    assert outside["matched"] == 1
+    assert outside["controls"][0]["control_id"] == "xccdf_example_rule_unselected"
+    unresolved = browse_controls(tmp_path, record, ControlQuery(outcome="unresolved"))
+    assert all(
+        control.get("before_xccdf_result") != "notselected"
+        for control in unresolved["controls"]
+    )
 
 
 def test_waiver_details_survive_review_and_both_exports(tmp_path):
@@ -309,3 +323,117 @@ def test_waiver_details_survive_review_and_both_exports(tmp_path):
         assert "waived" in body
         assert "Example operator" in body
         assert "Accepted exception" in body
+
+
+def _create_mock_large_record(workspace):
+    source = json.loads((Path(__file__).parent / "fixtures/cinc.json").read_bytes())
+    source["profiles"][0]["controls"] = [
+        {
+            "id": f"control-{index:03}",
+            "title": f"{'SSH configuration' if index >= 269 else 'System protection'} {index:03}",
+            "impact": (None, 0.3, 0.4, 0.7, 1.0)[index % 5],
+            "results": [{"status": "failed" if index % 3 == 0 else "passed"}],
+        }
+        for index in range(275)
+    ]
+    return _create_mock_record(workspace, source)
+
+
+def test_control_browser_paginates_complete_evidence_without_raw_assertions(tmp_path):
+    record = _create_mock_large_record(tmp_path)
+    record["controls"] = record["before"]["controls"][:2]
+    result = browse_controls(
+        tmp_path, record, ControlQuery(page=11, page_size=25, sort="control_id")
+    )
+    assert result["total"] == result["matched"] == 275
+    assert result["pages"] == 11
+    assert result["controls"][0]["control_id"] == "control-250"
+    assert result["controls"][-1]["control_id"] == "control-274"
+    assert "results" not in json.dumps(result)
+    assert len(record["before"]["controls"]) == 2
+    result = browse_controls(
+        tmp_path, record, ControlQuery(search="SSH", outcome="failed")
+    )
+    assert result["matched"] == 2
+    assert {item["control_id"] for item in result["controls"]} == {
+        "control-270",
+        "control-273",
+    }
+    assert browse_controls(tmp_path, record, ControlQuery(page=999))["page"] == 6
+
+
+@pytest.mark.parametrize(
+    "band,expected",
+    [("unknown", {None}), ("low", {0.3}), ("medium", {0.4}), ("high", {0.7, 1.0})],
+)
+def test_control_browser_impact_bands_and_sorting(tmp_path, band, expected):
+    record = _create_mock_large_record(tmp_path)
+    result = browse_controls(
+        tmp_path, record, ControlQuery(impact=band, page_size=100, sort="impact_desc")
+    )
+    assert {item["impact"] for item in result["controls"]} == expected
+    impacts = [
+        item["impact"] for item in result["controls"] if item["impact"] is not None
+    ]
+    assert impacts == sorted(impacts, reverse=True)
+
+
+def test_control_browser_compares_full_phases_and_rechecks_cached_evidence(tmp_path):
+    record = _create_mock_large_record(tmp_path)
+    source = Path(record["before"]["report_artifact"])
+    changed = json.loads(source.read_bytes())
+    changed["profiles"][0]["controls"][273]["results"] = [{"status": "passed"}]
+    after = source.with_name("after.json")
+    after.write_text(json.dumps(changed))
+    record["after"] = copy.deepcopy(record["before"])
+    record["after"].update(
+        report_artifact=str(after),
+        report_sha256=hashlib.sha256(after.read_bytes()).hexdigest(),
+    )
+    evidence = ReviewEvidence()
+    result = browse_controls(
+        tmp_path,
+        record,
+        ControlQuery(search="control-273", outcome="passed"),
+        evidence=evidence,
+    )
+    assert result["controls"][0]["before"] == "failed"
+    assert result["controls"][0]["after"] == "passed"
+    assert (
+        browse_controls(
+            tmp_path, record, ControlQuery(search="control-273", outcome="unresolved")
+        )["matched"]
+        == 0
+    )
+    Path(record["before"]["report_artifact"]).write_text("changed")
+    with pytest.raises(ValueError, match="SHA-256"):
+        browse_controls(tmp_path, record, ControlQuery(), evidence=evidence)
+
+
+@pytest.mark.parametrize("has_latest_evidence", [False, True])
+def test_reassessment_filters_a_previous_pass_as_unassessed(
+    tmp_path, has_latest_evidence
+):
+    record = _create_mock_large_record(tmp_path)
+    record["request"].update(action="assess", assessment_of="b" * 32)
+    if has_latest_evidence:
+        source = Path(record["before"]["report_artifact"])
+        changed = json.loads(source.read_bytes())
+        del changed["profiles"][0]["controls"][1]
+        after = source.with_name("after.json")
+        after.write_text(json.dumps(changed))
+        record["after"] = {
+            **record["before"],
+            "report_artifact": str(after),
+            "report_sha256": hashlib.sha256(after.read_bytes()).hexdigest(),
+        }
+    for outcome in ("passed", "unassessed", "unresolved"):
+        result = browse_controls(
+            tmp_path, record, ControlQuery(search="control-001", outcome=outcome)
+        )
+        if outcome == "passed":
+            assert result["matched"] == 0
+        else:
+            assert result["matched"] == 1
+            assert result["controls"][0]["before"] == "passed"
+            assert result["controls"][0]["after"] == "unassessed"

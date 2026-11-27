@@ -1,12 +1,15 @@
 """Control investigation, stale-response isolation and report downloads."""
 
 import json
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
+from kerkov.core.compliance.review import ControlQuery, browse_controls
+from tests.core.compliance.review_test import _create_mock_large_record
 from tests.web.browser_support import emit, last_request
 from tests.web.host_compliance_browser_test import (
     connect,
@@ -289,6 +292,7 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     expect(page.locator("#compliance-controls tr")).to_have_count(1)
     assert page.locator(".compliance-controls th:visible").all_text_contents() == [
         "Check",
+        "Impact",
         "Result",
     ]
     expect(page.locator("#compliance-controls")).not_to_contain_text("xccdf_example")
@@ -296,7 +300,15 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     button.click()
     request = last_request(page, "compliance.control")
     assert request["control_id"] == "xccdf_example_rule_passwd_permissions"
-    _reply_control(page, request)
+    _reply_control(
+        page,
+        request,
+        control={
+            "notice": "Current assessment evidence",
+            "before": {"status": "unassessed", "tests": []},
+            "after": {"status": "failed", "tests": []},
+        },
+    )
     expect(page.locator("#compliance-control-drawer")).to_contain_text("Result: failed")
     expect(page.locator("#compliance-control-drawer")).not_to_contain_text(
         "After: unassessed"
@@ -316,9 +328,305 @@ def test_completed_assessment_prioritizes_counts_and_failures_with_editable_setu
     expect(page.locator('[name="scap_datastream"]')).to_have_value(
         "/workspace/benchmark.xml"
     )
+    settings = record["request"]["scan"]["openscap"]
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value(settings["sha256"])
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(
+        settings["profile_id"]
+    )
     expect(page.get_by_role("button", name="Scan host", exact=True)).to_be_visible()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
     assert not page.evaluate(
         "window.testSocket.sent.some(message => message.type === 'compliance.run')"
     )
+
+
+def test_reassessment_distinguishes_latest_result_from_a_previous_pass(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["status"] = "failed"
+    record["request"].update(action="assess", assessment_of="b" * 32)
+    record["before"] = {"counts": {"passed": 1, "failed": 0}}
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    expect(page.locator("#compliance-metrics")).to_be_hidden()
+    filter_outcome = page.locator("#compliance-control-filter")
+    filter_outcome.select_option("passed")
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    filter_outcome.select_option("unassessed")
+    check = page.get_by_role("button", name="Check passed", exact=True)
+    expect(check.locator("xpath=ancestor::tr")).to_contain_text("unassessed")
+    check.click()
+    request = last_request(page, "compliance.control")
+    _reply_control(
+        page,
+        request,
+        control={
+            "notice": "Saved evidence",
+            "before": {"status": "passed", "tests": []},
+            "after": {"status": "unassessed", "tests": []},
+        },
+    )
+    drawer = page.locator("#compliance-control-drawer")
+    expect(drawer).to_contain_text("Result: unassessed")
+    expect(drawer).to_contain_text("Previous: passed")
+
+
+def _show_complete_record(page, tmp_path):
+    open_compliance(page, configure=True)
+    connect(page)
+    record = _create_mock_large_record(tmp_path)
+    record["request"]["scan"]["host"] = "example.com"
+    record["label"] = "Linux security assessment"
+    record["controls"] = record["before"]["controls"]
+
+    def respond(request):
+        try:
+            return {
+                **request,
+                **browse_controls(
+                    tmp_path, record, ControlQuery.model_validate(request["query"])
+                ),
+            }
+        except ValueError as exc:
+            return {**request, "detail": str(exc)}
+
+    page.expose_function("browseSavedControls", respond)
+    page.evaluate("""() => {
+      const send = window.testSocket.send.bind(window.testSocket);
+      window.testSocket.send = data => {
+        send(data);
+        const request = JSON.parse(data);
+        if (request.type === 'compliance.controls') window.browseSavedControls(request).then(payload =>
+          window.testSocket.emit({type: 'compliance.controls', payload}));
+      };
+    }""")
+    emit(page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]})
+    return record
+
+
+@pytest.mark.parametrize(
+    "width,theme", [(390, "light"), (390, "dark"), (1440, "light"), (1440, "dark")]
+)
+def test_complete_browser_pages_searches_and_filters_original_evidence(
+    dashboard, tmp_path, width, theme
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1440 if width > 760 else 1100})
+    page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+    _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    page.locator("#compliance-control-filter").select_option("all")
+    page.locator("#compliance-page-size").select_option("25")
+    page.locator("#compliance-control-sort").select_option("control_id")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–25 of 275 matching checks · 275 total"
+    )
+    page.locator("#compliance-page-next").click()
+    expect(page.locator("#compliance-page-number")).to_have_text("Page 2 of 11")
+    expect(page.locator("#compliance-controls")).to_contain_text("control-025")
+    table = page.locator(".compliance-table-wrap")
+    table.evaluate("node => node.scrollTop = node.scrollHeight")
+    assert table.evaluate("node => node.scrollTop > 0")
+    assert (
+        abs(
+            page.locator(".compliance-controls th").first.bounding_box()["y"]
+            - table.bounding_box()["y"]
+        )
+        <= 2
+    )
+    page.locator("#compliance-control-search").fill("SSH")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–6 of 6 matching checks · 275 total"
+    )
+    expect(page.locator("#compliance-controls")).to_contain_text("control-274")
+    expect(page.locator("#compliance-page-previous")).to_be_disabled()
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    assert not page.evaluate(
+        "window.testSocket.sent.some(message => message.type === 'compliance.run')"
+    )
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.locator("#compliance-control-search").evaluate("node => node.blur()")
+    page.evaluate("window.scrollTo(0, 0)")
+    page.screenshot(
+        path=str(tmp_path / f"compliance-full-browser-{width}-{theme}.png"),
+        full_page=True,
+    )
+    page.locator("#compliance-control-impact").select_option("high")
+    expect(page.locator("#compliance-controls tr")).to_have_count(3)
+    page.locator("#compliance-control-filter").select_option("failed")
+    expect(page.locator("#compliance-controls tr")).to_have_count(1)
+    page.locator("#compliance-controls-clear").click()
+    expect(page.locator("#compliance-control-search")).to_have_value("")
+    expect(page.locator("#compliance-control-impact")).to_have_value("all")
+    expect(page.locator("#compliance-page-summary")).to_have_text(
+        "1–25 of 275 matching checks · 275 total"
+    )
+
+
+def test_complete_browser_reports_changed_evidence_and_retries(dashboard, tmp_path):
+    page = dashboard
+    record = _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    path = Path(record["before"]["report_artifact"])
+    original = path.read_bytes()
+    path.write_text("changed")
+    page.locator("#compliance-control-search").fill("SSH")
+    expect(page.locator("#compliance-filter-notice")).to_contain_text("SHA-256")
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    path.write_bytes(original)
+    page.locator("#compliance-controls-retry").click()
+    expect(page.locator("#compliance-page-summary")).to_contain_text(
+        "2 matching checks"
+    )
+
+
+def test_outcome_count_shortcut_clears_search_and_impact(dashboard, tmp_path):
+    page = dashboard
+    _show_complete_record(page, tmp_path)
+    search = page.locator("#compliance-control-search")
+    impact = page.locator("#compliance-control-impact")
+    search.fill("SSH")
+    impact.select_option("high")
+    page.get_by_role("button", name="Show failed checks").click()
+    expect(search).to_have_value("")
+    expect(impact).to_have_value("all")
+    expect(page.locator("#compliance-page-summary")).to_contain_text(
+        "92 matching checks"
+    )
+
+
+def test_complete_browser_discards_old_search_and_run_responses(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["before"] = {
+        "report_artifact": "/workspace/source.json",
+        "report_sha256": "a" * 64,
+    }
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    first = last_request(page, "compliance.controls")
+    page.locator("#compliance-control-search").fill("new search")
+    emit(
+        page,
+        "compliance.controls",
+        {
+            **first,
+            "controls": [record["controls"][0]],
+            "total": 275,
+            "matched": 275,
+            "page": 1,
+            "pages": 6,
+            "page_size": 50,
+        },
+    )
+    page.wait_for_function(
+        "window.testSocket.sent.filter(message => message.type === 'compliance.controls').length === 2"
+    )
+    expect(page.locator("#compliance-controls tr")).to_have_count(0)
+    second = last_request(page, "compliance.controls")
+    record["id"] = "b" * 32
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    emit(page, "compliance.controls", {**second, "detail": "stale failure"})
+    expect(page.locator("#compliance-filter-notice")).not_to_contain_text(
+        "stale failure"
+    )
+
+
+def test_complete_browser_disconnect_discards_pending_page(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["before"] = {
+        "report_artifact": "/workspace/source.json",
+        "report_sha256": "a" * 64,
+    }
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    request = last_request(page, "compliance.controls")
+    page.evaluate("window.testSocket.close()")
+    emit(page, "compliance.controls", {**request, "detail": "stale failure"})
+    expect(page.locator("#compliance-filter-notice")).to_contain_text("Connection lost")
+    expect(page.locator("#compliance-page-next")).to_be_disabled()
+    expect(page.locator("#compliance-run-review")).to_have_attribute(
+        "aria-busy", "false"
+    )
+
+
+def test_results_keep_outcome_labels_distinct_and_show_impact_bands(dashboard):
+    page = dashboard
+    record = _show_record(page)
+    record["controls"][1]["impact"] = 0.4
+    record["controls"].extend(
+        [
+            {
+                "profile": "accounts",
+                "control_id": "zero-impact",
+                "title": "Low impact check",
+                "impact": 0,
+                "before": "passed",
+                "after": "unassessed",
+            },
+            {
+                "profile": "accounts",
+                "control_id": "unknown-impact",
+                "title": "Unknown impact check",
+                "impact": None,
+                "before": "unassessed",
+                "after": "unassessed",
+            },
+        ]
+    )
+    emit(page, "compliance.updated", {"context_id": "context-1", "run": record})
+    for status in (
+        "passed",
+        "failed",
+        "error",
+        "skipped",
+        "waived",
+        "no_tests",
+        "unassessed",
+    ):
+        badge = page.locator(
+            f".compliance-outcome-{status} .compliance-status-badge"
+        ).first
+        expect(badge).to_have_text(status.replace("_", " "))
+    expect(
+        page.locator("#compliance-controls tr").first.locator(".compliance-impact")
+    ).to_have_text("High · 0.7")
+    expect(
+        page.locator("#compliance-controls tr").nth(1).locator(".compliance-impact")
+    ).to_have_text("Medium · 0.4")
+    expect(
+        page.locator("#compliance-controls tr").nth(6).locator(".compliance-impact")
+    ).to_have_text("Low · 0")
+    expect(
+        page.locator("#compliance-controls tr").nth(7).locator(".compliance-impact")
+    ).to_have_text("Unknown")
+    impact = page.locator("#compliance-control-impact")
+    for band, count in (("high", 1), ("medium", 5), ("low", 1), ("unknown", 1)):
+        impact.select_option(band)
+        cells = page.locator("#compliance-controls .compliance-impact")
+        expect(cells).to_have_count(count)
+        assert all(
+            label.startswith(band.title()) for label in cells.all_text_contents()
+        )
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_sticky_header_keeps_keyboard_focused_control_visible(
+    dashboard, tmp_path, width
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1440})
+    _show_complete_record(page, tmp_path)
+    expect(page.locator("#compliance-page-summary")).to_contain_text("275 total")
+    buttons = page.locator("#compliance-controls button")
+    previous = buttons.nth(5)
+    buttons.nth(6).focus()
+    previous.evaluate("""node => {
+      const table = node.closest('.compliance-table-wrap');
+      table.scrollTop += node.getBoundingClientRect().top - table.getBoundingClientRect().top - 2;
+    }""")
+    page.keyboard.press("Shift+Tab")
+    expect(previous).to_be_focused()
+    header = page.locator(".compliance-controls th").first.bounding_box()
+    focused = previous.bounding_box()
+    assert focused["y"] >= header["y"] + header["height"]

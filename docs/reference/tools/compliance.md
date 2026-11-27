@@ -78,14 +78,28 @@ records it as interrupted. As in the browser, the controller must be Linux, macO
 or WSL. Runs need the interactive CLI and are refused under `--message`. See [workflows](../../concepts/workflows.md) for how the two front
 ends share one implementation.
 
+## Review evidence in the web console
+
 Select a control ID to open its evidence drawer. It shows the saved before/after
 assertions, observed failure messages, skip reasons and errors, plus an explicit
 remediation mapping for newly prepared built-in baseline plans. Custom profiles
 and older plans without a saved mapping require manual review. Check descriptions
 and messages come from Cinc evidence; Kerkov does not invent expected or observed
-values. Search by control ID, title or profile, or filter by the latest assessed
-outcome. **Unresolved** includes every outcome other than passed. These filters
-apply to the loaded control list, which remains bounded to 200 controls.
+values. Search all saved controls by control ID, title or profile, filter by
+outcome or impact, and sort by priority, impact, title or ID. A control missing
+from a reassessment is **Unassessed** in the current result. Its previous outcome
+remains available in the control details.
+**Outside profile** shows OpenSCAP rules the selected profile did not run.
+The **Unresolved** filter omits those rules. Impact bands are high
+(at least 0.7), medium (0.4 to below 0.7), low (below 0.4), or unknown.
+The table labels impact bands beside their numeric values and uses labeled
+outcome badges. Column headers stay visible while scrolling long result pages,
+and keyboard focus scrolls into view below them.
+The browser reads complete, hash-verified evidence in pages of 25, 50 or 100
+controls, independently of the model's 200-control summary. Changing a filter
+starts at page one. Missing or changed evidence shows an explicit error with a
+retry action; older records without evidence references show their saved summary
+only. Browsing does not start a model turn or execute tools.
 
 **Download HTML report** and **Download JSON report** export the selected saved
 run directly to your browser, without starting a model turn or executing tools.
@@ -204,11 +218,17 @@ It does not update an already-cached tag on each scan.
 
 ### Catalog and URL downloads
 
-Under **Community profiles**, choose **Ubuntu 22.04 STIG** (MITRE SAF) or
-**Linux hardening** (DevSec), or paste a public GitHub repository URL and choose
-**Validate URL**. Catalog entries contain source definitions, not third-party
-checks copied into Kerkov's repository. Both choices use the same download and
-preparation path as custom URLs.
+For a listed community profile, select it and choose **Scan host**. Kerkov
+prepares the pinned profile on first use and continues to assessment once the
+prepared revision is verified. Preparation and assessment each use the current
+approval mode. The scan controls show preparation status and provide a
+**Profile source and dependencies** disclosure. Subsequent scans reuse the
+prepared copy.
+
+The catalog includes **Ubuntu 22.04 STIG** (MITRE SAF) and **Linux hardening**
+(DevSec). For your own public GitHub repository, paste the URL in
+**Customize → Profile search & imports** and choose **Validate URL**. Catalog and
+custom URLs follow the same preparation path.
 
 URL validation checks HTTPS/GitHub syntax, public repository accessibility, a
 usable revision and an ordinary root `inspec.yml` with supported metadata. It
@@ -224,14 +244,14 @@ dependency's GitHub URL and full Git commit. Imported dependencies must use a
 public GitHub repository root in `git` and a full commit in `ref` that is
 reachable from that repository's default branch.
 
-After reviewing those sources, choose **Download & prepare**. Normal tool
-approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
+You can prepare the selected profile separately with **Download & prepare**
+under **Profile search & imports**. Normal tool approval and `EXECUTION_ENABLED` apply because trusted profile code may execute
 during Cinc's offline check. Kerkov verifies that the reviewed commit is
 reachable from the repository's default branch or the branch or tag in the URL.
 It downloads that exact commit even if the branch has advanced, then rebuilds
 the offline bundle and lockfile for Cinc to check.
-**Assess asset** is the separate target assessment. Supply an inputs file when
-the profile requires environment-specific inputs.
+**Scan host** starts the target assessment. Supply an inputs file when the
+profile requires environment-specific inputs.
 
 Ready copies live under `COMPLIANCE_PROJECTS_DIR`, outside the source repository.
 Selecting a downloaded catalog project checks the local copy without contacting
@@ -553,12 +573,21 @@ available. These explain the check; they are not observed target evidence.
 ## Assess with OpenSCAP
 
 In **Workflows → Compliance**, select **SCAP datastream**. Enter the path to a
-reviewed, self-contained SCAP source datastream on the controller, its SHA-256,
-the full XCCDF profile ID, and the exact target distribution and release as
-reported by Ansible. Select **Assess asset**. In chat, provide the same
-information and the target. The model passes it to `compliance_scan` as
-`profile` plus `openscap` settings. Use `oscap info <datastream>` on a system
-with OpenSCAP to list profile IDs in that content.
+reviewed, self-contained SCAP source datastream on the controller and select
+**Inspect datastream**. Relative paths resolve within the engagement workspace.
+Inspection reads the local file, displays its SHA-256, and lists XCCDF profiles
+from the default checklist used by the scanner. It can run with execution
+disabled. Changing the path clears the digest and profile selection. Scan
+preparation rechecks the selected digest and profile before requesting approval.
+
+Select a profile, enter the exact target distribution and release reported by
+Ansible, and select **Scan host**. The controller can check its own Ansible
+executable and the local SSH files. If Ansible is missing, install it and
+select **Recheck Ansible** to update readiness with the current profile intact.
+The approved scan checks target access,
+privileges, Python, platform and OpenSCAP. In chat, supply the same settings
+including the full XCCDF profile ID and digest for `compliance_scan`. Use
+`oscap info <datastream>` on a system with OpenSCAP to list profile IDs manually.
 
 OpenSCAP assessment needs Ansible on the controller and Python and `oscap` on
 the target. The approved scan stages the reviewed XML over SSH in a private

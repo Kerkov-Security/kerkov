@@ -193,14 +193,138 @@ def test_known_ssh_access_is_retrieved_and_used_without_retyping(dashboard: Page
     assert scan["sudo"] is False
 
 
-def test_multiple_container_ports_need_an_explicit_choice(dashboard: Page):
+@pytest.mark.parametrize("width", [390, 1440])
+def test_multiple_container_ports_are_selectable_in_conversation(
+    dashboard: Page, width
+):
     page = dashboard
-    open_compliance(page, configure=True)
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
     emit_access(page, [_create_mock_access(), _create_mock_access(2233, 41)])
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("")
-    expect(page.locator("#compliance-access-select")).to_be_visible()
-    page.locator("#compliance-access-select").select_option("41")
+    picker = page.get_by_label("SSH endpoint")
+    expect(picker).to_be_visible()
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "false"
+    )
+    scan = page.get_by_role("button", name="Scan host", exact=True)
+    scan.click()
+    card = page.get_by_role("article", name="Compliance assessment")
+    expect(card).to_contain_text("Which SSH endpoint should I assess?")
+    assert sent(page, "compliance.run") == []
+    option = card.get_by_role("button", name="example.com:2233 · root")
+    option.click()
     expect(page.locator('#compliance-form [name="port"]')).to_have_value("2233")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["scan"]["port"] == 2233
+
+
+def test_assessment_records_a_new_host_from_conversation(dashboard: Page):
+    page = dashboard
+    snapshot(page, [])
+    page.locator("#compliance-tab").click()
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    card = page.get_by_role("article", name="Compliance assessment")
+    expect(card).to_contain_text("Which host should I assess?")
+    card.get_by_label("Hostname or IP address").fill("192.0.2.40")
+    card.get_by_role("button", name="Use host").click()
+    save = last_request(page, "inventory.save")
+    assert save["resource"] == {"kind": "ip", "value": "192.0.2.40"}
+    emit_socket(
+        page,
+        "inventory.saved",
+        {"context_id": "context-1", "request_id": save["request_id"], "entry_id": 9},
+    )
+    entries, _ = profile_fixture()
+    new_host = dict(entries[0], id=9, section="assets", entry=save["resource"])
+    emit_socket(
+        page,
+        "inventory.snapshot",
+        {
+            "context_id": "context-1",
+            "request_id": save["request_id"],
+            "available": True,
+            "entries": [new_host],
+        },
+    )
+    lookup = last_request(page, "inventory.ssh_access")
+    assert lookup["entry_id"] == 9
+    emit_socket(
+        page,
+        "inventory.ssh_access",
+        {
+            **lookup,
+            "resource": save["resource"],
+            "candidates": [_create_mock_access()],
+        },
+    )
+    run = last_request(page, "compliance.run")["workflow_request"]
+    assert run["resource_id"] == 9
+    assert run["scan"]["host"] == "192.0.2.40"
+    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(card).to_contain_text("192.0.2.40:2222")
+
+
+def test_assessment_prompts_in_conversation_when_multiple_hosts_exist(dashboard: Page):
+    page = dashboard
+    entries, _ = open_compliance(page)
+    entries.append(
+        dict(entries[0], id=9, entry={"kind": "domain", "value": "other.example.com"})
+    )
+    snapshot(page, entries)
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    card = page.get_by_role("article", name="Compliance assessment")
+    expect(card).to_contain_text("Which host should I assess?")
+    assert not sent(page, "compliance.run")
+    card.get_by_role("button", name="other.example.com", exact=True).click()
+    lookup = last_request(page, "inventory.ssh_access")
+    assert lookup["entry_id"] == 9
+    emit_socket(
+        page,
+        "inventory.ssh_access",
+        {
+            **lookup,
+            "resource": {"kind": "domain", "value": "other.example.com"},
+            "candidates": [_create_mock_access()],
+        },
+    )
+    assert last_request(page, "compliance.run")["workflow_request"]["resource_id"] == 9
+
+
+def test_switching_ssh_endpoints_from_a_result_prepares_a_new_assessment(
+    dashboard: Page,
+):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    old_run = show_failed_assessment(page)
+    emit_access(
+        page,
+        [
+            _create_mock_access(
+                2222,
+                40,
+                user="audit",
+                private_key_file="/keys/audit key",
+                known_hosts_file="/keys/trusted hosts",
+                sudo=True,
+            ),
+            _create_mock_access(2233, 41),
+        ],
+    )
+    picker = page.get_by_label("SSH endpoint")
+    expect(picker).to_have_value("40")
+    expect(page.locator("#compliance-result")).to_be_visible()
+    picker.select_option("41")
+    expect(page.locator("#compliance-result")).to_be_hidden()
+    expect(page.locator("#compliance-setup")).to_have_attribute("open", "")
+    expect(page.locator('[name="port"]')).to_have_value("2233")
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [old_run]}
+    )
+    expect(page.locator("#compliance-result")).to_be_hidden()
+    assert not sent(page, "compliance.run")
 
 
 def test_access_lookup_never_overwrites_manual_connection_edits(dashboard: Page):
@@ -262,14 +386,12 @@ def test_compliance_workflow_and_host_profiles_link_to_it(dashboard: Page):
     )
     page.locator("#compliance-welcome").click()
     expect(page.locator("#compliance-view")).to_be_visible()
-    expect(page.locator("#compliance-empty")).to_be_visible()
+    expect(page.locator("#compliance-host")).to_be_disabled()
     page.locator("#conversation-tab").click()
     open_profile(page)
     page.locator("#profile-compliance").click()
     expect(page.locator("#compliance-view")).to_be_visible()
-    expect(page.locator('[data-compliance-asset="1"]')).to_have_attribute(
-        "aria-pressed", "true"
-    )
+    expect(page.locator("#compliance-host")).to_have_value("1")
 
 
 def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
@@ -284,7 +406,7 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     )
     connect(page)
     review_saved_preview(page)
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.get_by_role("button", name="Apply fixes", exact=True).click()
     request = last_request(page, "compliance.run")["workflow_request"]
     scan = request["scan"]
     assert scan["host"] == "example.com"
@@ -294,7 +416,7 @@ def test_builtin_baselines_need_no_profile_or_playbook_setup(dashboard: Page):
     assert request["baseline_id"] == "linux-accounts"
     assert request["remediation"] is None
     assert request["preview_id"] == "a" * 32
-    expect(page.locator("#compliance-view")).to_be_visible()
+    expect(page.locator("#conversation-view")).to_be_visible()
 
 
 @pytest.mark.parametrize("baseline", ["linux-accounts", "ssh-essentials"])
@@ -315,8 +437,8 @@ def test_assessment_never_requests_remediation(dashboard: Page, baseline):
     )
     expect(page.locator("#message-input")).to_have_value("My unfinished draft")
     expect(page.locator(".compliance-request-details")).to_have_count(0)
-    expect(page.locator("#compliance-view")).to_be_visible()
-    page.locator("#compliance-stop").click()
+    expect(page.locator("#conversation-view")).to_be_visible()
+    page.get_by_role("button", name="Stop main run").click()
     assert (
         last_request(page, "user.message.stop")["message_id"] == request["message_id"]
     )
@@ -330,19 +452,120 @@ def test_preview_requests_check_mode_and_retains_connection_on_baseline_switch(
     connect(page)
     page.locator('[data-compliance-baseline="ssh-essentials"]').click()
     expect(page.locator('#compliance-form [name="user"]')).to_have_value("audit")
+    record = saved_preview(page)
     show_failed_assessment(page)
     page.get_by_role("button", name="Preview fixes", exact=True).click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["action"] == "preview"
     assert request["baseline_id"] == "ssh-essentials"
     assert request["scan"]["user"] == "audit"
+    preview = page.get_by_role("article", name="Compliance preview")
+    expect(preview).to_contain_text("example.com:2222")
+    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(preview.get_by_role("button", name="Apply fixes")).to_have_count(0)
+    message_id = last_request(page, "compliance.run")["message_id"]
+    emit(page, "user.message.accepted", {"message_id": message_id, "stoppable": True})
+    expect(page.get_by_role("button", name="Stop main run")).to_be_visible()
+    emit(page, "tool.start", {"name": "ansible", "params": {"check": True}})
+    expect(preview).to_contain_text("Previewing changes")
+    emit(
+        page,
+        "approval.request",
+        {
+            "approval_id": "preview-approval",
+            "tool": "ansible",
+            "params": {"check": True},
+        },
+    )
+    expect(page.locator("#conversation-approval-host #approval-tray")).to_be_visible()
+    emit(
+        page,
+        "approval.resolved",
+        {"approval_id": "preview-approval", "decision": "approve"},
+    )
+
+    record = {
+        **record,
+        "request": request,
+        "remediation": {
+            "totals": {"changed": 1},
+            "changed_tasks": [
+                {"task": "Install managed SSH drop-in", "host": "selected_asset"}
+            ],
+        },
+        "plan": {
+            "baseline": {
+                "remediation": {"ssh-no-x11": "Set global X11Forwarding to no."}
+            },
+        },
+        "controls": [
+            {
+                "control_id": "ssh-no-x11",
+                "title": "Disable X11 forwarding",
+                "before": "failed",
+                "after": "unassessed",
+            }
+        ],
+    }
+    emit(
+        page, "assistant.message", {"message": "SSH preview narration.", "final": True}
+    )
+    expect(page.locator("#message-stream")).to_contain_text("SSH preview narration.")
+    expect(page.locator("#compliance-workflow-output")).not_to_contain_text(
+        "SSH preview narration."
+    )
+    emit_socket(
+        page,
+        "compliance.updated",
+        {"context_id": "context-1", "message_id": message_id, "run": record},
+    )
+    emit(page, "user.message.complete", {"message_id": message_id})
+    expect(preview).to_contain_text("Ansible check mode predicts 1 task change.")
+    expect(preview).to_contain_text("Install managed SSH drop-in")
+    expect(preview).to_contain_text("Set global X11Forwarding to no.")
+    expect(page.locator("#message-stream > :last-child")).to_have_attribute(
+        "aria-label", "Compliance preview"
+    )
+    preview.get_by_role("button", name="View preview evidence").click()
+    page.get_by_role("button", name="Review fixes").click()
+    expect(preview).to_have_count(1)
+    preview.get_by_role("button", name="Apply fixes").click()
+    applied = last_request(page, "compliance.run")
+    assert applied["workflow_request"]["preview_id"] == record["id"]
+    assert applied["workflow_request"]["scan"] == request["scan"]
+    remediation = page.get_by_role("article", name="Compliance remediation")
+    expect(remediation).to_contain_text("example.com:2222")
+    emit(page, "tool.start", {"name": "ansible", "params": {"check": False}})
+    expect(remediation).to_contain_text("Applying baseline")
+    applied_record = {
+        **record,
+        "id": "b" * 32,
+        "status": "verified",
+        "detail": "All selected baseline checks passed.",
+        "request": applied["workflow_request"],
+        "after": {"counts": {"passed": 5, "failed": 0, "error": 0}},
+    }
+    emit_socket(
+        page,
+        "compliance.updated",
+        {
+            "context_id": "context-1",
+            "message_id": applied["message_id"],
+            "run": applied_record,
+        },
+    )
+    emit(page, "user.message.complete", {"message_id": applied["message_id"]})
+    expect(remediation).to_contain_text("Install managed SSH drop-in")
+    expect(remediation).to_contain_text(
+        "Follow-up assessment found 5 passed, 0 failed, and 0 errored checks."
+    )
+    remediation.get_by_role("button", name="View remediation results").click()
+    expect(page.locator("#compliance-result-title")).to_have_text("Baseline verified")
 
 
-def test_connection_validation_and_custom_host_alias(dashboard: Page):
+def test_custom_remediation_requires_a_single_host_alias(dashboard: Page):
     page = dashboard
     open_compliance(page, configure=True)
-    page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
-    assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-connection")).to_have_attribute("open", "")
     for name, value in {
         "user": "audit",
@@ -359,12 +582,13 @@ def test_connection_validation_and_custom_host_alias(dashboard: Page):
         "host_alias": "all",
     }.items():
         page.locator(f'#compliance-form [name="{name}"]').fill(value)
-    page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
+    show_failed_assessment(page)
+    page.locator("#compliance-result-preview").click()
     assert sent(page, "compliance.run") == []
     expect(page.locator("#compliance-status")).to_contain_text("single host alias")
     page.locator('#compliance-form [name="host_alias"]').fill("server_one")
     review_saved_preview(page)
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.get_by_role("button", name="Apply fixes", exact=True).click()
     run = last_request(page, "compliance.run")["workflow_request"]["remediation"]
     assert run["profile"] == "linux_lab" and run["limit"] == "server_one"
 
@@ -381,7 +605,7 @@ def test_connection_clears_on_identity_change_and_results_clear_on_engagement_re
     expect(page.locator("#compliance-selection")).to_contain_text("Customer API")
     snapshot(page, [], context_id="next-engagement")
     expect(page.locator("#compliance-result")).to_be_hidden()
-    expect(page.locator("#compliance-assets button")).to_have_count(0)
+    expect(page.locator("#compliance-host")).to_have_value("")
 
 
 def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Page):
@@ -389,7 +613,7 @@ def test_workflow_result_never_uses_ansible_success_as_compliance(dashboard: Pag
     open_compliance(page, configure=True)
     connect(page)
     review_saved_preview(page)
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.get_by_role("button", name="Apply fixes", exact=True).click()
     request = last_request(page, "compliance.run")
     emit(page, "tool.result", {"name": "ansible", "success": True, "metadata": {}})
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
@@ -419,23 +643,212 @@ def test_scap_datastream_routes_to_assessment_only(dashboard: Page):
     page.locator('[data-compliance-baseline="openscap"]').click()
     expect(page.locator("#compliance-custom")).to_be_hidden()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
+    expect(page.locator("#compliance-openscap")).to_contain_text(
+        "The approved scan checks SSH access"
+    )
+    path = "profiles/datastream.xml"
     settings = {
-        "datastream": "profiles/datastream.xml",
         "sha256": "a" * 64,
         "profile_id": "xccdf_example_profile_server",
         "distribution": "Ubuntu",
         "version": "24.04",
     }
-    for name, value in settings.items():
-        page.locator(f'#compliance-openscap [name="scap_{name}"]').fill(value)
+    page.get_by_label("Datastream path").fill(path)
+    page.get_by_role("button", name="Inspect datastream").click()
+    inspection = last_request(page, "compliance.datastream.inspect")
+    assert inspection["path"] == path
+    assert not sent(page, "compliance.run")
+    emit(
+        page,
+        "compliance.datastream.inspect",
+        {
+            "request_id": inspection["request_id"],
+            "context_id": inspection["context_id"],
+            "sha256": settings["sha256"],
+            "profiles": [
+                {"id": settings["profile_id"], "title": "Server baseline"},
+                {
+                    "id": "xccdf_example_profile_workstation",
+                    "title": "Workstation baseline",
+                },
+            ],
+            "ansible_available": True,
+        },
+    )
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value(settings["sha256"])
+    expect(page.locator("#compliance-scap-status")).to_contain_text(
+        "Ansible is available"
+    )
+    page.get_by_label("XCCDF profile", exact=True).select_option(
+        label="Server baseline"
+    )
+    expect(page.locator("#compliance-scap-profile-id")).to_have_text(
+        settings["profile_id"]
+    )
+    page.get_by_label("Target distribution", exact=True).fill(settings["distribution"])
+    page.get_by_label("Target distribution version").fill(settings["version"])
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["action"] == "assess"
     assert request["baseline_id"] is None
     assert request["remediation"] is None
-    assert request["scan"]["profile"] == settings.pop("datastream")
+    assert request["scan"]["profile"] == path
     assert request["scan"]["openscap"] == settings
+
+
+def test_switching_hosts_reuses_only_the_inspected_benchmark(dashboard: Page):
+    page = dashboard
+    entries, _ = open_compliance(page, configure=True)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    page.get_by_label("Datastream path").fill("profiles/datastream.xml")
+    page.get_by_role("button", name="Inspect datastream").click()
+    inspection = last_request(page, "compliance.datastream.inspect")
+    profile = "xccdf_example_profile_server"
+    emit(
+        page,
+        inspection["type"],
+        {
+            **inspection,
+            "sha256": "a" * 64,
+            "profiles": [{"id": profile, "title": "Server"}],
+            "ansible_available": True,
+        },
+    )
+    page.get_by_label("Target distribution", exact=True).fill("Ubuntu")
+    page.get_by_label("Target distribution version").fill("24.04")
+    entries.append(
+        {
+            **entries[0],
+            "id": 9,
+            "entry": {"kind": "domain", "value": "other.example.com"},
+        }
+    )
+    snapshot(page, entries)
+    page.locator("#compliance-host").select_option("9")
+    expect(page.get_by_label("Datastream path")).to_have_value(
+        "profiles/datastream.xml"
+    )
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value("a" * 64)
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(profile)
+    expect(page.get_by_label("Target distribution", exact=True)).to_have_value("")
+    expect(page.get_by_label("Target distribution version")).to_have_value("")
+    expect(page.locator('[name="private_key_file"]')).to_have_value("")
+    assert len(sent(page, "compliance.datastream.inspect")) == 1
+    assert not sent(page, "compliance.run")
+
+
+def test_scap_path_edits_discard_stale_responses_and_clear_the_digest(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    path = page.get_by_label("Datastream path")
+    inspect = page.get_by_role("button", name="Inspect datastream")
+    profile = page.get_by_label("XCCDF profile", exact=True)
+    digest = page.get_by_label("Datastream SHA-256")
+    path.fill("old.xml")
+    path.press("Enter")
+    old = last_request(page, "compliance.datastream.inspect")
+    path.fill("new.xml")
+    inspect.click()
+    new = last_request(page, "compliance.datastream.inspect")
+    assert new["request_id"] != old["request_id"]
+    result = {
+        "context_id": new["context_id"],
+        "sha256": "b" * 64,
+        "profiles": [{"id": "xccdf_example_profile_server", "title": "Server"}],
+        "ansible_available": True,
+    }
+    emit(page, new["type"], {**result, "request_id": old["request_id"]})
+    expect(digest).to_have_value("")
+    expect(profile).to_be_disabled()
+    emit(page, new["type"], {**result, "request_id": new["request_id"]})
+    expect(digest).to_have_value("b" * 64)
+    expect(profile).to_have_value("xccdf_example_profile_server")
+    expect(page.locator("#compliance-scap-status")).to_contain_text(
+        "Ansible is available"
+    )
+    path.fill("another.xml")
+    expect(digest).to_have_value("")
+    expect(profile).to_be_disabled()
+    page.locator('[data-compliance-action="assess"]').click()
+    expect(page.locator("#compliance-status")).to_contain_text("Inspect the datastream")
+    assert not sent(page, "compliance.run")
+
+
+def test_missing_ansible_blocks_scanning_until_rechecked(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    page.locator('[data-compliance-baseline="openscap"]').click()
+    page.get_by_label("Datastream path").fill("datastream.xml")
+    page.get_by_role("button", name="Inspect datastream").click()
+    inspection = last_request(page, "compliance.datastream.inspect")
+    profile_id = "xccdf_example_profile_server"
+    emit(
+        page,
+        inspection["type"],
+        {
+            **inspection,
+            "sha256": "a" * 64,
+            "profiles": [{"id": profile_id, "title": "Server"}],
+            "ansible_available": False,
+        },
+    )
+    page.get_by_label("Target distribution", exact=True).fill("Ubuntu")
+    page.get_by_label("Target distribution version").fill("24.04")
+    ready = page.locator("#compliance-settings-status")
+    scan = page.get_by_role("button", name="Scan host", exact=True)
+    recheck = page.get_by_role("button", name="Recheck Ansible")
+    expect(ready).to_contain_text("Ansible is missing on the controller")
+    expect(scan).to_be_disabled()
+    recheck.click()
+    check = last_request(page, "compliance.ansible.check")
+    expect(recheck).to_be_disabled()
+    emit(page, check["type"], {**check, "ansible_available": False})
+    expect(scan).to_be_disabled()
+    recheck.click()
+    retry = last_request(page, "compliance.ansible.check")
+    assert retry["request_id"] != check["request_id"]
+    emit(page, retry["type"], {**retry, "ansible_available": True})
+    expect(ready).to_contain_text("Ready to assess")
+    expect(recheck).to_be_hidden()
+    expect(page.get_by_label("XCCDF profile", exact=True)).to_have_value(profile_id)
+    expect(page.get_by_label("Datastream SHA-256")).to_have_value("a" * 64)
+    assert not sent(page, "compliance.run")
+    scan.click()
+    assert (
+        last_request(page, "compliance.run")["workflow_request"]["scan"]["openscap"][
+            "profile_id"
+        ]
+        == profile_id
+    )
+
+
+def test_saved_scap_reassessment_reuses_the_pinned_profile(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    record["status"] = "attention"
+    record["request"].update(action="assess", baseline_id=None)
+    settings = {
+        "distribution": "Ubuntu",
+        "version": "22.04",
+        "profile_id": "xccdf_example_profile_server",
+        "sha256": "a" * 64,
+    }
+    record["request"]["scan"].update(
+        profile="/workspace/benchmark.xml", openscap=settings
+    )
+    emit(page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]})
+    page.locator("#compliance-reassess").click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["assessment_of"] == record["id"]
+    assert request["scan"]["openscap"] == settings
+    assert not sent(page, "compliance.datastream.inspect")
 
 
 @pytest.mark.parametrize("width", [390, 1440])
@@ -484,7 +897,7 @@ def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, them
     headings = [
         page.locator(f"#{heading}").bounding_box()
         for heading in (
-            "compliance-assets-heading",
+            "compliance-host",
             "compliance-baseline-heading",
             "compliance-launch-heading",
         )
@@ -494,17 +907,17 @@ def test_compliance_layout_and_disconnected_actions(dashboard: Page, width, them
         ".compliance-main-actions button:visible"
     ).all_text_contents() == [
         "Customize",
-        "Find assessment details",
+        "Scan host",
     ]
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     page.evaluate("window.testSocket.close()")
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    expect(page.locator('[data-compliance-action="assess"]')).to_be_disabled()
     expect(page.locator("#compliance-add-asset")).to_be_disabled()
     assert sent(page, "compliance.run") == []
 
 
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
-def test_clean_setup_discovers_access_before_offering_assessment(
+def test_scan_host_recovers_access_then_starts_assessment_with_one_click(
     dashboard: Page, tmp_path, width, theme
 ):
     page = dashboard
@@ -516,13 +929,15 @@ def test_clean_setup_discovers_access_before_offering_assessment(
     expect(page.locator("#compliance-profile-search")).to_be_hidden()
     expect(page.locator('[name="private_key_file"]')).to_be_hidden()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
-    expect(page.locator("#compliance-discover")).to_be_visible()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
+    expect(page.get_by_role("button", name="Scan host", exact=True)).to_be_visible()
     expect(page.locator("#compliance-profile-name")).to_have_text(
         "Linux account protection"
     )
     previous = last_request(page, "inventory.ssh_access")
-    page.locator("#compliance-discover").click()
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    assert not sent(page, "compliance.run")
+    emit_access(page, [], request=previous)
     request = last_request(page, "compliance.run")
     assert "workflow_request" not in request
     assert "use recall" in request["message"]
@@ -533,19 +948,57 @@ def test_clean_setup_discovers_access_before_offering_assessment(
     expect(page.locator("#compliance-settings-status")).to_contain_text(
         "Ready to assess"
     )
-    expect(page.locator("#compliance-discover")).to_be_hidden()
-    expect(page.locator('[data-compliance-action="assess"]')).to_be_visible()
     assert not page.locator("#compliance-advanced").evaluate("node => node.open")
-    assert len(sent(page, "compliance.run")) == 1
+    assert len(sent(page, "compliance.run")) == 2
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.screenshot(
         path=str(tmp_path / f"clean-compliance-{width}.png"), full_page=True
     )
-    page.locator('[data-compliance-action="assess"]').click()
     assessment = last_request(page, "compliance.run")["workflow_request"]
     assert assessment["action"] == "assess"
     assert assessment["scan"]["user"] == "root"
     assert assessment["remediation"] is None
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_scan_host_stops_after_unsuccessful_access_lookup(dashboard: Page, stopped):
+    page = dashboard
+    open_compliance(page)
+    emit_access(page, [])
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    lookup = last_request(page, "compliance.run")
+    assert "workflow_request" not in lookup
+    emit(
+        page,
+        "user.message.complete",
+        {"message_id": lookup["message_id"], "stopped": stopped},
+    )
+    emit_access(page, [_create_mock_access()] if stopped else [])
+    expect(page.locator("#compliance-status")).to_contain_text(
+        "Workflow stopped" if stopped else "No complete SSH access was recovered"
+    )
+    assert len(sent(page, "compliance.run")) == 1
+
+
+def test_switching_hosts_cancels_a_pending_one_click_assessment(dashboard: Page):
+    page = dashboard
+    entries, _ = open_compliance(page)
+    lookup = last_request(page, "inventory.ssh_access")
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    entries.append(
+        {
+            **entries[0],
+            "id": 9,
+            "entry": {"kind": "domain", "value": "other.example.com"},
+        }
+    )
+    snapshot(page, entries)
+    page.locator("#compliance-tab").click()
+    page.locator("#compliance-host").select_option("9")
+    emit_access(page, [_create_mock_access()], request=lookup)
+    expect(page.locator("#compliance-host")).to_have_value("9")
+    expect(page.locator('[name="user"]')).to_have_value("")
+    assert not sent(page, "compliance.run")
 
 
 @pytest.mark.parametrize("width,theme", [(1440, "dark"), (390, "light")])
@@ -611,7 +1064,7 @@ def test_setup_status_opens_first_missing_assessment_setting(dashboard: Page):
     page = dashboard
     open_compliance(page, configure=True)
     expect(page.locator("#compliance-settings-status")).to_contain_text(
-        "Let Kerkov find the connection details"
+        "Scan host looks up SSH access"
     )
     page.locator("#compliance-complete-settings").click()
     expect(page.locator('[name="user"]')).to_be_focused()
@@ -638,29 +1091,44 @@ def test_setup_status_opens_first_missing_assessment_setting(dashboard: Page):
 
 
 @pytest.mark.parametrize("width", [1440, 390])
-def test_workflow_progress_approvals_and_results_stay_out_of_chat(
+def test_assessment_progress_approvals_and_result_link_in_conversation(
     dashboard: Page, width
 ):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
     open_compliance(page, configure=True)
     connect(page)
-    before = page.locator("#message-stream").inner_text()
     record = saved_preview(page)
     record.update(status="running", stage="assessment")
     record["request"]["action"] = "assess"
     page.locator('[data-compliance-action="assess"]').click()
     request = last_request(page, "compliance.run")
     assert request["context_id"]
+    card = page.get_by_role("article", name="Compliance assessment")
+    expect(card).to_contain_text("example.com:2222 · Linux account protection")
+    expect(page.locator("#conversation-view")).to_be_visible()
     emit(
         page,
         "user.message.accepted",
         {"message_id": request["message_id"], "stoppable": True},
     )
-    emit_socket(page, "compliance.updated", {"context_id": "context-1", "run": record})
-    assert not page.locator("#compliance-setup").evaluate("node => node.open")
+    expect(page.get_by_role("button", name="Stop main run")).to_be_visible()
+
+    def update(status, stage, detail):
+        record.update(status=status, stage=stage, detail=detail)
+        emit_socket(
+            page,
+            "compliance.updated",
+            {
+                "context_id": "context-1",
+                "message_id": request["message_id"],
+                "run": record,
+            },
+        )
+
+    update("running", "assessment", "Readiness checks complete.")
     emit(page, "tool.start", {"name": "compliance_scan", "params": {}})
-    expect(page.locator("#compliance-status")).to_have_text("Assessing baseline…")
+    expect(card).to_contain_text("Assessing baseline…")
     emit(
         page,
         "approval.request",
@@ -670,8 +1138,7 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
             "params": {"host": "example.com"},
         },
     )
-    expect(page.locator("#compliance-approval-host #approval-tray")).to_be_visible()
-    expect(page.locator("#compliance-view")).to_be_visible()
+    expect(page.locator("#conversation-approval-host #approval-tray")).to_be_visible()
     page.locator("#approval-list").get_by_role(
         "button", name="Approve", exact=True
     ).click()
@@ -686,12 +1153,46 @@ def test_workflow_progress_approvals_and_results_stay_out_of_chat(
         "assistant.message",
         {"message": "Assessment evidence: reports/check.json", "final": True},
     )
-    expect(page.locator("#compliance-workflow-output")).to_contain_text(
+    expect(page.locator("#message-stream")).to_contain_text("reports/check.json")
+    expect(page.locator("#compliance-workflow-output")).not_to_contain_text(
         "reports/check.json"
     )
+    update("passed", "finished", "All selected checks passed.")
     emit(page, "user.message.complete", {"message_id": request["message_id"]})
-    assert page.locator("#message-stream").inner_text() == before
-    expect(page.locator("#compliance-stop")).to_be_hidden()
+    expect(card).to_contain_text("All selected checks passed.")
+    expect(page.locator("#stop-button")).to_be_hidden()
+    card.get_by_role("button", name="View assessment results").click()
+    expect(page.locator("#compliance-view")).to_be_visible()
+    expect(page.locator("#compliance-result-title")).to_have_text(
+        "Baseline checks passed"
+    )
+
+
+def test_failed_assessment_offers_preview_in_conversation(dashboard: Page):
+    page = dashboard
+    open_compliance(page, configure=True)
+    connect(page)
+    record = saved_preview(page)
+    record["request"]["action"] = "assess"
+    record.update(status="attention", before={"counts": {"passed": 3, "failed": 1}})
+    page.locator('[data-compliance-action="assess"]').click()
+    message_id = last_request(page, "compliance.run")["message_id"]
+    emit_socket(
+        page,
+        "compliance.updated",
+        {"context_id": "context-1", "message_id": message_id, "run": record},
+    )
+    emit(page, "user.message.complete", {"message_id": message_id})
+    assessment = page.get_by_role("article", name="Compliance assessment")
+    preview = assessment.get_by_role("button", name="Preview fixes")
+    expect(preview).to_have_accessible_description(
+        "Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply."
+    )
+    preview.click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "preview"
+    assert request["scan"] == record["request"]["scan"]
+    expect(page.get_by_role("article", name="Compliance preview")).to_be_visible()
 
 
 def test_disconnect_does_not_leave_a_workflow_running_or_claim_success(dashboard: Page):
@@ -736,9 +1237,15 @@ def test_custom_preview_keeps_original_profile_path_for_apply(dashboard: Page):
         page, "compliance.snapshot", {"context_id": "context-1", "runs": [record]}
     )
     page.locator("#compliance-review-apply").click()
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.locator("#compliance-tab").click()
+    page.locator("#compliance-setup > summary").click()
+    connect(page)
+    page.locator('#compliance-form [name="port"]').fill("2223")
+    page.locator("#conversation-tab").click()
+    page.get_by_role("button", name="Apply fixes", exact=True).click()
     request = last_request(page, "compliance.run")["workflow_request"]
 
+    assert request["scan"]["port"] == 2222
     assert request["scan"]["profile"] == record["request"]["scan"]["profile"]
     assert (
         WorkflowRequest.model_validate(request).signature()
@@ -753,13 +1260,11 @@ def test_apply_requires_a_reviewed_preview(dashboard: Page):
     expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
     page.locator("#compliance-form").evaluate("form => form.requestSubmit()")
     assert sent(page, "compliance.run") == []
-    expect(page.locator("#compliance-status")).to_contain_text("Preview fixes first")
-    expect(page.locator("#compliance-status")).to_be_visible()
     review_saved_preview(page)
-    expect(page.locator("#compliance-controls")).to_contain_text("Protect account file")
-    expect(page.locator("#compliance-controls")).to_contain_text("failed")
-    expect(page.locator("#compliance-controls")).to_contain_text("unassessed")
-    page.locator('#compliance-form button[type="submit"]').click()
+    card = page.get_by_role("article", name="Compliance preview")
+    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(card).to_contain_text("Review the saved plan before applying.")
+    card.get_by_role("button", name="Apply fixes").click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["preview_id"] == "a" * 32
     assert request["action"] == "apply"
@@ -771,7 +1276,7 @@ def test_fix_actions_follow_failed_scan_and_selected_profile(dashboard: Page):
     open_compliance(page, configure=True)
     connect(page)
     preview = page.locator('[data-compliance-action="preview"]')
-    apply = page.locator('#compliance-form button[type="submit"]')
+    apply = page.get_by_role("button", name="Apply fixes", exact=True)
     expect(preview).to_be_hidden()
     expect(apply).to_be_hidden()
     record = show_failed_assessment(page)
@@ -806,7 +1311,7 @@ def test_errored_scan_does_not_offer_remediation(dashboard: Page):
     expect(page.locator("#compliance-result-preview")).to_be_hidden()
     page.locator("#compliance-setup > summary").click()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_hidden()
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_hidden()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
 
 
 @pytest.mark.parametrize(
@@ -911,6 +1416,7 @@ def test_failed_reassessment_does_not_attach_next_manual_assessment(
         page.evaluate(
             "() => { inventoryPanel.startWorkflow = window.originalStartWorkflow; }"
         )
+        page.locator("#compliance-tab").click()
         page.locator("#compliance-setup > summary").click()
     if failure == "validation":
         expect(page.locator("#compliance-setup")).to_have_attribute("open", "")
@@ -940,8 +1446,7 @@ def test_python_installation_is_an_explicit_restored_option(dashboard: Page):
     expect(option).not_to_be_checked()
     option.check()
     review_saved_preview(page)
-    expect(option).to_be_checked()
-    page.locator('#compliance-form button[type="submit"]').click()
+    page.get_by_role("button", name="Apply fixes", exact=True).click()
     request = last_request(page, "compliance.run")["workflow_request"]
     assert request["bootstrap_python"] is True
 
@@ -955,6 +1460,8 @@ def test_profile_inputs_never_apply_fixes_on_enter(dashboard: Page, field):
     connect(page)
     review_saved_preview(page)
     expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_enabled()
+    page.locator("#compliance-tab").click()
+    page.locator("#compliance-setup > summary").click()
     page.locator("#compliance-customize").click()
     if not page.locator("#compliance-profile-options").evaluate("node => node.open"):
         page.locator("#compliance-profile-options > summary").click()
@@ -1020,7 +1527,7 @@ def test_completion_preserves_feedback_without_a_result_or_when_stopped(
         else (
             ""
             if has_saved_run
-            else "Workflow finished. Results are available to the conversation."
+            else "No saved assessment result was received. Check the activity log or refresh assessment history."
         )
     )
     expect(page.locator("#compliance-status")).to_have_text(expected)
@@ -1047,11 +1554,48 @@ def test_preview_check_mode_warning_is_visible_by_both_actions(dashboard: Page):
     ).to_be_visible()
 
 
-def test_opening_setup_preserves_explicit_host_selection(dashboard: Page):
+def test_adding_a_host_returns_to_compliance(dashboard: Page):
     page = dashboard
+    entries, _ = open_compliance(page)
+    page.get_by_role("button", name="+ Add host").click()
+    expect(page.locator("#inventory-kind")).to_have_value("ip")
+    page.locator("#inventory-value").fill("192.0.2.12")
+    page.locator("#inventory-save").click()
+    request = last_request(page, "inventory.save")
+    emit_socket(
+        page,
+        "inventory.saved",
+        {"context_id": "context-1", "request_id": request["request_id"], "entry_id": 9},
+    )
+    entries.append(
+        {
+            **entries[0],
+            "id": 9,
+            "section": "assets",
+            "entry": {"kind": "ip", "value": "192.0.2.12"},
+        }
+    )
+    emit_socket(
+        page,
+        "inventory.snapshot",
+        {
+            "context_id": "context-1",
+            "request_id": request["request_id"],
+            "available": True,
+            "entries": entries,
+        },
+    )
+    expect(page.locator("#compliance-view")).to_be_visible()
+    expect(page.locator("#compliance-host")).to_have_value("9")
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_switching_hosts_from_results_opens_the_new_host_setup(dashboard: Page, width):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
     entries, _ = open_compliance(page, configure=True)
     connect(page)
-    show_failed_assessment(page)
+    original_run = show_failed_assessment(page)
     entries.append(
         {
             **entries[0],
@@ -1064,10 +1608,40 @@ def test_opening_setup_preserves_explicit_host_selection(dashboard: Page):
         }
     )
     snapshot(page, entries)
-    page.evaluate("inventoryPanel.compliance.selectResource(9)")
-    page.locator("#compliance-setup > summary").click()
+    expect(page.locator("#compliance-result")).to_be_visible()
+    expect(page.locator("#compliance-setup")).not_to_have_attribute("open", "")
+    expect(page.locator("#compliance-host")).to_be_visible()
+    page.locator("#compliance-host").select_option("9")
+    expect(page.locator("#compliance-setup")).to_have_attribute("open", "")
+    expect(page.locator("#compliance-result")).to_be_hidden()
+    expect(page.locator('[name="user"]')).to_have_value("")
+    expect(page.locator('[name="private_key_file"]')).to_have_value("")
     expect(page.locator("#compliance-selection")).to_contain_text("Other host")
-    expect(page.locator('[data-compliance-asset="9"]')).to_have_attribute(
-        "aria-pressed", "true"
+    expect(page.locator("#compliance-host")).to_have_value("9")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    emit_socket(
+        page, "compliance.snapshot", {"context_id": "context-1", "runs": [original_run]}
     )
-    assert sent(page, "compliance.run") == []
+    expect(page.locator("#compliance-result")).to_be_hidden()
+
+    access_request = last_request(page, "inventory.ssh_access")
+    assert access_request["entry_id"] == 9
+    emit(
+        page,
+        "inventory.ssh_access",
+        {
+            **access_request,
+            "resource": {"kind": "domain", "value": "other.example.com"},
+            "candidates": [
+                _create_mock_access(
+                    port=22, user="other", private_key_file="/keys/other"
+                )
+            ],
+        },
+    )
+    page.locator('[data-compliance-action="assess"]').click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["resource_id"] == 9
+    assert request["scan"]["host"] == "other.example.com"
+    assert request["scan"]["user"] == "other"
+    assert request["scan"]["private_key_file"] == "/keys/other"

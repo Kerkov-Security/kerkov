@@ -14,11 +14,11 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=7">
-    <script src="{% static 'console/compliance-projects.js' %}?v=2" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=15" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=14">
+    <script src="{% static 'console/compliance-projects.js' %}?v=4" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=26" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
-    <script src="{% static 'console/inventory.js' %}?v=11" defer></script>
+    <script src="{% static 'console/inventory.js' %}?v=13" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
     <script src="{% static 'console/providers.js' %}?v=2" defer></script>
     <script src="{% static 'console/network-map.js' %}?v=8" defer></script>
@@ -33,7 +33,7 @@
     <script src="{% static 'console/htb.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/mcp.css' %}?v=2">
     <script src="{% static 'console/mcp.js' %}?v=3" defer></script>
-    <script src="{% static 'console/dashboard.js' %}?v=33" defer></script>
+    <script src="{% static 'console/dashboard.js' %}?v=34" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#message-input">Skip to conversation</a>
@@ -159,17 +159,20 @@
           {{ compliance_projects|json_script:"compliance-project-catalog" }}
           <section id="compliance-view" class="compliance-view" role="tabpanel" aria-labelledby="compliance-tab" hidden>
             <header class="compliance-hero">
-              <div><h2>Compliance</h2><p>Choose a host. Kerkov will help gather the assessment details.</p></div>
+              <h2>Compliance</h2>
+              <div class="compliance-target-picker">
+                <div class="compliance-host-picker">
+                  <label for="compliance-host">Host</label>
+                  <select id="compliance-host" disabled></select>
+                  <button id="compliance-add-asset" type="button" class="inventory-link">+ Add host</button>
+                </div>
+                <label id="compliance-access-choice" class="compliance-access-choice" hidden>SSH endpoint<select id="compliance-access-select"></select></label>
+              </div>
             </header>
             <div class="compliance-workspace">
               <details id="compliance-setup" class="compliance-setup" open>
                 <summary><span><strong id="compliance-setup-summary">Choose a host and profile</strong><span id="compliance-setup-profile" class="compliance-caption"></span></span><span class="compliance-setup-edit">Edit setup <span aria-hidden="true">⌄</span></span></summary>
                 <div class="compliance-setup-grid">
-              <section class="compliance-step" aria-labelledby="compliance-assets-heading">
-                <div class="compliance-step-heading"><h3 id="compliance-assets-heading">Host</h3><button id="compliance-add-asset" type="button" class="inventory-link">+ Add host</button></div>
-                <div id="compliance-assets" class="compliance-asset-list" role="group" aria-label="Select a host"></div>
-                <p id="compliance-empty" class="compliance-empty">Add a Linux host to start protecting your assets.</p>
-              </section>
               <section id="compliance-profile-settings" class="compliance-profile-settings" aria-labelledby="compliance-baseline-heading">
                 <div class="compliance-step-heading"><h3 id="compliance-baseline-heading">Profiles</h3><span id="compliance-profile-name" class="compliance-caption">Linux account protection</span></div>
                 <div class="compliance-profile-library" tabindex="0" role="region" aria-label="Available compliance profiles">
@@ -186,16 +189,22 @@
                   <strong>Before you run</strong>
                   <ul id="compliance-precondition-list"></ul>
                 </div>
-                <p id="compliance-selection" class="compliance-selection">Choose an asset to get started.</p>
+                <p id="compliance-selection" class="compliance-selection">Choose a Linux host to start an assessment.</p>
                 <p id="compliance-settings-status" class="compliance-caption" role="status"></p>
                   <div class="compliance-actions compliance-main-actions">
+                    <button type="button" id="compliance-scap-recheck" class="inventory-button" hidden>Recheck Ansible</button>
                     <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
-                    <button id="compliance-discover" type="button" class="inventory-button inventory-primary">Find assessment details</button>
                     <button type="button" class="inventory-button inventory-primary" data-compliance-action="assess">Scan host</button>
                     <button type="button" class="inventory-button" data-compliance-action="preview" aria-describedby="compliance-preview-warning" hidden>Preview fixes</button>
-                    <button type="submit" class="inventory-button inventory-primary" hidden>Apply fixes</button>
                   </div>
                   <p id="compliance-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
+                <div id="compliance-project-summary" class="compliance-project-summary" hidden>
+                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite"></p>
+                  <details>
+                    <summary>Profile source and dependencies</summary>
+                    <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
+                  </details>
+                </div>
               </section>
                   <details id="compliance-advanced" class="compliance-advanced">
                     <summary>Customize assessment</summary>
@@ -204,7 +213,6 @@
                   <details id="compliance-connection" class="compliance-connection">
                     <summary><span>SSH connection</span><span id="compliance-connection-summary">Set up access</span></summary>
                     <p id="compliance-access-status" class="compliance-caption" role="status" aria-live="polite">Recorded access is retrieved from this engagement.</p>
-                    <label id="compliance-access-choice" class="compliance-access-choice" hidden>Recorded SSH connections<select id="compliance-access-select" aria-label="Recorded SSH connections"></select></label>
                     <div class="compliance-access-actions"><button id="compliance-access-refresh" class="inventory-link" type="button">Refresh known access</button><button id="compliance-access-find" class="inventory-link" type="button">Find known access</button></div>
                     <div class="compliance-fields">
                       <label>SSH user<input name="user" required maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_.\-]{0,63}" placeholder="Your host login"></label>
@@ -229,14 +237,24 @@
                   </details>
                   <details id="compliance-openscap" class="compliance-connection" hidden>
                     <summary>SCAP datastream settings</summary>
-                    <p class="compliance-caption">Use a reviewed source datastream on the Kerkov controller. Ansible stages it on the target and checks its SHA-256 before invoking the installed scanner.</p>
+                    <p class="compliance-caption">Inspect a reviewed source datastream on the Kerkov controller to load its default checklist's profiles and compute its SHA-256.</p>
                     <div class="compliance-fields">
-                      <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
-                      <label>Datastream SHA-256<input name="scap_sha256" maxlength="64" pattern="[a-f0-9]{64}"></label>
-                      <label>XCCDF profile ID<input name="scap_profile_id" maxlength="1024" placeholder="xccdf_org.ssgproject.content_profile_stig"></label>
+                      <div class="compliance-datastream-path">
+                        <label>Datastream path<input name="scap_datastream" maxlength="4096" placeholder="profiles/ssg-ubuntu2404-ds.xml"></label>
+                        <button type="button" id="compliance-scap-inspect" class="inventory-button">Inspect datastream</button>
+                      </div>
+                      <label>Datastream SHA-256<input name="scap_sha256" readonly></label>
+                      <div class="compliance-scap-profile">
+                        <label for="compliance-scap-profile">XCCDF profile</label>
+                        <select id="compliance-scap-profile" name="scap_profile_id" aria-describedby="compliance-scap-profile-id"><option value="">Inspect a datastream first</option></select>
+                        <span id="compliance-scap-profile-id" class="compliance-caption" hidden></span>
+                      </div>
                       <label>Target distribution<input name="scap_distribution" maxlength="64" placeholder="Ubuntu"></label>
                       <label>Target distribution version<input name="scap_version" maxlength="64" placeholder="24.04"></label>
                     </div>
+                    <p id="compliance-scap-status" class="compliance-caption" role="status"></p>
+                    <p class="compliance-caption"><strong>Controller checks</strong> cover the datastream and Ansible. Scan preparation checks the local SSH files and rechecks the digest before approval.</p>
+                    <p class="compliance-caption"><strong>The approved scan</strong> checks SSH access, the Linux distribution and version, Python, privileges and OpenSCAP on the target. Installing a missing scanner requires separate approval.</p>
                   </details>
                   <label class="compliance-sudo"><input name="bootstrap_python" type="checkbox"> Allow installing missing Python 3 during apply</label>
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
@@ -257,8 +275,6 @@
                     <button id="compliance-project-validate" type="button" class="inventory-button">Validate URL</button>
                     <button id="compliance-project-prepare" type="button" class="inventory-button" disabled>Download &amp; prepare</button>
                   </div>
-                  <p id="compliance-project-status" class="compliance-caption" role="status" aria-live="polite">Choose a community profile or validate a project URL. Downloads stay outside Kerkov's source repository.</p>
-                  <p id="compliance-project-detail" class="compliance-caption compliance-project-detail"></p>
                   <div class="compliance-actions">
                     <button id="compliance-project-refresh" type="button" class="inventory-button" hidden>Check for updates</button>
                     <button id="compliance-project-update" type="button" class="inventory-button" hidden>Update</button>
@@ -290,11 +306,18 @@
               <section id="compliance-run-review" class="compliance-run-review" hidden aria-label="Saved assessment and remediation plan">
                 <div class="compliance-findings-toolbar"><h3>Checks</h3>
                 <div class="compliance-control-filters">
-                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" placeholder="Search checks">
-                  <label class="sr-only" for="compliance-control-filter">Latest assessed outcome</label><select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option></select>
+                  <label class="sr-only" for="compliance-control-search">Find a control</label><input id="compliance-control-search" type="search" maxlength="256" placeholder="Search all checks">
+                  <label class="sr-only" for="compliance-control-filter">Latest assessed outcome</label><select id="compliance-control-filter"><option value="all">All outcomes</option><option value="unresolved">Unresolved</option><option value="failed">Failed</option><option value="error">Errored</option><option value="skipped">Skipped</option><option value="waived">Waived</option><option value="no_tests">No tests</option><option value="passed">Passed</option><option value="unassessed">Unassessed</option><option value="outside_profile">Outside profile</option></select>
+                  <label class="sr-only" for="compliance-control-impact">Control impact</label><select id="compliance-control-impact"><option value="all">All impacts</option><option value="high">High · ≥ 0.7</option><option value="medium">Medium · 0.4–&lt;0.7</option><option value="low">Low · &lt; 0.4</option><option value="unknown">Unknown impact</option></select>
+                  <label class="sr-only" for="compliance-control-sort">Sort controls</label><select id="compliance-control-sort"><option value="priority">Priority first</option><option value="impact_desc">Highest impact</option><option value="impact_asc">Lowest impact</option><option value="title">Check title</option><option value="control_id">Control ID</option></select>
                 </div></div>
                 <div class="compliance-table-wrap" tabindex="0" role="region" aria-label="Control outcomes"><table class="compliance-controls"><thead><tr><th scope="col">Check</th><th id="compliance-impact-heading" scope="col">Impact</th><th id="compliance-before-heading" scope="col">Before</th><th id="compliance-after-heading" scope="col">After</th></tr></thead><tbody id="compliance-controls"></tbody></table></div>
-                <p id="compliance-filter-notice" class="compliance-caption" role="status"></p>
+                <div id="compliance-pagination" class="compliance-pagination" hidden>
+                  <p id="compliance-page-summary" class="compliance-caption" role="status" aria-live="polite"></p>
+                  <div class="compliance-page-actions"><label>Rows <select id="compliance-page-size" aria-label="Controls per page"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select></label><button id="compliance-page-previous" class="inventory-button" type="button">Previous</button><span id="compliance-page-number" class="compliance-caption"></span><button id="compliance-page-next" class="inventory-button" type="button">Next</button></div>
+                </div>
+                <p id="compliance-filter-notice" class="compliance-caption" role="status" aria-live="polite"></p>
+                <button id="compliance-controls-retry" class="inventory-link" type="button" hidden>Retry loading checks</button>
                 <button id="compliance-controls-clear" class="inventory-link" type="button" hidden>Clear check filters</button>
                 <p id="compliance-controls-notice" class="compliance-caption"></p>
                 <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button></div>

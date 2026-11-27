@@ -159,6 +159,11 @@ def control_comparison(record: dict[str, Any]) -> list[dict[str, Any]]:
             **after.get(key, before.get(key, {})),
             "before": before.get(key, {}).get("status", "unassessed"),
             "after": after.get(key, {}).get("status", "unassessed"),
+            **{
+                f"{phase}_xccdf_result": control["xccdf_result"]
+                for phase, rows in (("before", before), ("after", after))
+                if (control := rows.get(key)) and "xccdf_result" in control
+            },
         }
         for key in dict.fromkeys([*before, *after])
     ]

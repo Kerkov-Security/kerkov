@@ -7,7 +7,13 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Page, expect
 
-from tests.web.host_compliance_browser_test import connect, emit, open_compliance
+from tests.web.host_compliance_browser_test import (
+    _create_mock_access,
+    connect,
+    emit,
+    emit_access,
+    open_compliance,
+)
 from tests.web.resource_profile_browser_test import emit as emit_socket
 from tests.web.resource_profile_browser_test import last_request, sent, snapshot
 
@@ -40,11 +46,42 @@ def _reply(page, type, **payload):
     )
 
 
-def _open(page, cached=False):
-    open_compliance(page, configure=True)
-    connect(page)
+def _open(page, cached=False, configure=True):
+    open_compliance(page, configure=configure)
+    if configure:
+        connect(page)
+    else:
+        emit_access(page, [_create_mock_access()])
     _reply(page, "compliance.projects", projects=[_ready()] if cached else [])
     page.locator('[data-compliance-project="devsec-linux"]').click()
+
+
+def _prepare_from_scan(page):
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    assert sent(page, "compliance.project.prepare") == []
+    _reply(page, "compliance.project.validate", validated=_ready(ref="main"))
+    return last_request(page, "compliance.project.prepare")
+
+
+def _preparation_result(page, request, *, success=True, error=None, stopped=False):
+    emit_socket(
+        page,
+        "compliance.event",
+        {
+            "message_id": request["message_id"],
+            "event_type": "tool.result",
+            "payload": {
+                "name": "compliance_profile",
+                "success": success,
+                "error": error,
+            },
+        },
+    )
+    emit(
+        page,
+        "user.message.complete",
+        {"message_id": request["message_id"], "stopped": stopped},
+    )
 
 
 @pytest.mark.parametrize("width", [390, 1440])
@@ -53,25 +90,19 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
 ):
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
-    _open(page)
+    _open(page, configure=False)
     expect(page.locator("#compliance-projects button")).to_have_count(2)
-    expect(page.locator('[data-compliance-action="assess"]')).to_be_disabled()
-    expect(page.locator("#compliance-project-prepare")).to_be_disabled()
-    expect(page.locator("#compliance-project-refresh")).to_be_hidden()
-    _reply(
-        page,
-        "compliance.project.validate",
-        validated={
-            "url": URL,
-            "name": "linux-baseline",
-            "version": "2.11.0",
-            "commit": COMMIT,
-            "dependencies": [],
-        },
+    expect(page.locator("#compliance-profile-name")).to_have_text("Linux hardening")
+    expect(page.locator("#compliance-customize")).to_have_attribute(
+        "aria-expanded", "false"
     )
-    expect(page.locator("#compliance-project-prepare")).to_be_enabled()
-    page.locator("#compliance-project-prepare").click()
-    request = last_request(page, "compliance.project.prepare")
+    request = _prepare_from_scan(page)
+    expect(page.locator("#conversation-view")).to_be_visible()
+    expect(page.get_by_role("article", name="Compliance assessment")).to_contain_text(
+        "Preparing the selected profile"
+    )
+    expect(page.locator("#compliance-project-detail")).to_contain_text(COMMIT)
+    assert sent(page, "compliance.run") == []
     assert request["project_request"] == {
         "url": URL,
         "refresh": False,
@@ -103,22 +134,81 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
         "approval.resolved",
         {"approval_id": "prepare", "decision": "approve_once"},
     )
-    emit(page, "user.message.complete", {"message_id": request["message_id"]})
+    _preparation_result(page, request)
+    assert sent(page, "compliance.run") == []
     _reply(page, "compliance.project.cached", url=URL, project=_ready())
     expect(page.locator("#compliance-project-status")).to_contain_text("reused until")
-    expect(page.locator('[data-compliance-action="assess"]')).to_be_enabled()
     expect(page.locator('[data-compliance-action="preview"]')).to_be_disabled()
-    expect(page.locator('#compliance-form button[type="submit"]')).to_be_disabled()
+    expect(page.get_by_role("button", name="Apply fixes", exact=True)).to_be_hidden()
     expect(page.locator("#compliance-local-profile")).to_be_hidden()
     expect(page.locator('#compliance-form [name="bootstrap_python"]')).to_be_hidden()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.screenshot(path=f"/tmp/kerkov-url-catalog-{width}.png", full_page=True)
-    page.locator('[data-compliance-action="assess"]').click()
     workflow = last_request(page, "compliance.run")["workflow_request"]
     assert workflow["action"] == "assess"
     assert workflow["scan"]["profile"] == _ready()["profile"]
     assert workflow["remediation"] is None
     assert workflow["bootstrap_python"] is False
+
+
+@pytest.mark.parametrize("outcome", ["denied", "stopped", "replaced"])
+def test_community_scan_stops_when_approved_preparation_cannot_be_used(
+    dashboard, outcome
+):
+    page = dashboard
+    _open(page, configure=False)
+    request = _prepare_from_scan(page)
+    _preparation_result(
+        page,
+        request,
+        success=outcome == "replaced",
+        error="Project preparation was denied." if outcome == "denied" else None,
+        stopped=outcome == "stopped",
+    )
+    _reply(page, "compliance.project.cached", url=URL, project=_ready(commit="b" * 40))
+    assert sent(page, "compliance.run") == []
+    expected = {
+        "denied": "denied",
+        "stopped": "stopped",
+        "replaced": "revision changed",
+    }
+    expect(page.locator("#compliance-status")).to_contain_text(expected[outcome])
+
+
+def test_community_scan_lookup_and_preparation_continue_in_order(dashboard):
+    page = dashboard
+    open_compliance(page)
+    _reply(page, "compliance.projects", projects=[])
+    page.locator('[data-compliance-project="devsec-linux"]').click()
+    old_access = last_request(page, "inventory.ssh_access")
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    emit_access(page, [], request=old_access)
+    discovery = last_request(page, "compliance.run")
+    assert "workflow_request" not in discovery
+    _reply(page, "compliance.project.validate", validated=_ready(ref="main"))
+    assert not sent(page, "compliance.project.prepare")
+    emit(page, "user.message.complete", {"message_id": discovery["message_id"]})
+    emit_access(page, [_create_mock_access()])
+    preparation = last_request(page, "compliance.project.prepare")
+    _preparation_result(page, preparation)
+    _reply(page, "compliance.project.cached", url=URL, project=_ready())
+    runs = sent(page, "compliance.run")
+    assert len(runs) == 2
+    scan = runs[-1]["workflow_request"]["scan"]
+    assert scan["profile"] == _ready()["profile"]
+    assert scan["user"] == "root"
+
+
+def test_community_scan_uses_verified_cache_without_repreparing(dashboard):
+    page = dashboard
+    _open(page, cached=True, configure=False)
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    assert sent(page, "compliance.run") == []
+    _reply(page, "compliance.project.cached", url=URL, project=_ready())
+    scan = last_request(page, "compliance.run")["workflow_request"]["scan"]
+    assert scan["profile"] == _ready()["profile"]
+    assert not sent(page, "compliance.project.validate")
+    assert not sent(page, "compliance.project.prepare")
 
 
 def test_cached_catalog_selection_checks_local_copy_without_url_validation(

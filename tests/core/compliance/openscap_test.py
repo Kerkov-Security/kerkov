@@ -1,21 +1,26 @@
 """XCCDF interpretation preserves uncertainty and selects evidence explicitly."""
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from lxml import etree
 
 from kerkov.core.compliance.openscap import (
     ARF_NAMESPACE,
     RESULTS,
     XCCDF_NAMESPACES,
+    datastream_bytes,
+    inspect_datastream,
     parse_report,
 )
 from kerkov.core.compliance.review import _assertions
 
 FIXTURE = Path(__file__).parent / "fixtures" / "results.xml"
+DATASTREAM_FIXTURE = Path(__file__).parent / "fixtures" / "openscap-datastream.xml"
 NS = "{" + XCCDF_NAMESPACES[0] + "}"
 
 
@@ -28,6 +33,58 @@ def _create_mock_report(outcomes=("pass",), result_id="assessment"):
         rule = etree.SubElement(result, NS + "rule-result", idref=f"rule_{index}")
         etree.SubElement(rule, NS + "result").text = outcome
     return result
+
+
+def test_inspection_pins_bytes_and_only_lists_default_checklist_profiles(tmp_path):
+    raw = DATASTREAM_FIXTURE.read_bytes()
+    path = tmp_path / "datastream.xml"
+    path.write_bytes(raw)
+    digest, profiles = inspect_datastream(path)
+    assert digest == hashlib.sha256(raw).hexdigest()
+    assert profiles == [
+        {"id": "xccdf_example_profile_server", "title": "Server baseline"},
+        {"id": "xccdf_example_profile_workstation", "title": "Workstation baseline"},
+    ]
+    assert datastream_bytes(path, digest, profiles[0]["id"]) == raw
+    path.write_bytes(raw + b"\n")
+    with pytest.raises(ValueError, match="reviewed SHA-256"):
+        datastream_bytes(path, digest, profiles[0]["id"])
+
+
+def test_staging_rejects_profiles_the_default_checklist_cannot_run():
+    path = FIXTURE.with_name("openscap-datastream.xml")
+    digest, _ = inspect_datastream(path)
+    for profile in ("xccdf_example_profile_other", "xccdf_example_profile_template"):
+        with pytest.raises(ValueError, match="selected XCCDF profile"):
+            datastream_bytes(path, digest, profile)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (
+            b"#scap_example_comp_default",
+            b"https://example.com/checklist.xml",
+            "embedded component",
+        ),
+        (
+            b"xccdf_example_profile_workstation",
+            b"xccdf_example_profile_server",
+            "duplicate profile IDs",
+        ),
+        (
+            b"<ds:data-stream-collection",
+            b"<!DOCTYPE data-stream-collection SYSTEM 'file:///dev/null'>"
+            b"<ds:data-stream-collection",
+            "must not contain a DTD",
+        ),
+    ],
+)
+def test_inspection_rejects_unusable_datastreams(tmp_path, old, new, message):
+    path = tmp_path / "datastream.xml"
+    path.write_bytes(DATASTREAM_FIXTURE.read_bytes().replace(old, new, 1))
+    with pytest.raises(ValueError, match=message):
+        inspect_datastream(path)
 
 
 class OpenScapReportTest(unittest.TestCase):

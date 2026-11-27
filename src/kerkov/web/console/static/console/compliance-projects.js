@@ -47,6 +47,7 @@ class ComplianceProjects {
   }
 
   deselect() {
+    if (this.host.pendingAssessment?.projectSequence != null) this.host.stopAssessmentSetup("");
     this.sequence += 1;
     this.selected = null;
     this.validated = null;
@@ -67,11 +68,15 @@ class ComplianceProjects {
     this.requests.set(id, request);
     if (!this.inventory.send({ type, request_id: id, context_id: request.context, ...(url ? { url } : {}) })) {
       this.requests.delete(id);
-      this.status("Project request could not be sent. Reconnect and retry.");
+      const detail = "Project request could not be sent. Reconnect and retry.";
+      this.status(detail);
+      if (type !== "compliance.projects") this.host.stopAssessmentSetup(detail);
     } else request.timer = setTimeout(() => {
       if (!this.requests.delete(id) || request.context !== this.inventory.contextId || request.sequence !== this.sequence) return;
-      this.status("Project request timed out. Retry when connected.");
-      this.render();
+      const detail = "Project request timed out. Retry when connected.";
+      this.status(detail);
+      if (type !== "compliance.projects") this.host.stopAssessmentSetup(detail);
+      this.host.setState();
     }, 45000);
     this.render();
   }
@@ -86,7 +91,22 @@ class ComplianceProjects {
     this.host.renderBaselines();
     this.host.renderSelection();
     this.host.text("compliance-project-detail", "");
-    const cached = this.cache.has(url);
+    this.checkSelection();
+  }
+
+  selectedName() {
+    return this.catalog.find(item => item.url === this.selected)?.name
+      || this.validated?.name || this.ready?.name || "Community profile";
+  }
+
+  selectionPending() {
+    return Array.from(this.requests.values()).some(request =>
+      request.sequence === this.sequence && request.type !== "compliance.projects");
+  }
+
+  checkSelection() {
+    const url = this.selected;
+    const cached = this.cache.has(url) && !this.cacheError;
     this.status(cached ? "Checking the downloaded copy…" : "Validating repository URL and profile metadata…");
     this.request(cached ? "compliance.project.cached" : "compliance.project.validate", url);
   }
@@ -101,14 +121,15 @@ class ComplianceProjects {
   prepare(refresh) {
     if (!this.selected || this.preparation || !this.inventory.canWrite() || !this.validated?.commit || refresh !== this.validated.refresh) return;
     const request = { url: this.selected, refresh, commit: this.validated.commit };
-    const id = this.inventory.startWorkflow("Prepare profile project", null, request);
+    const id = this.inventory.startWorkflow("Prepare profile project", null, request, !!this.host.assessmentCard);
     if (!id) { this.status("Wait for current work to finish and check the console connection."); return; }
-    this.preparation = { id, url: this.selected, sequence: this.sequence, context: this.inventory.contextId, refresh };
+    this.preparation = { id, url: this.selected, sequence: this.sequence, context: this.inventory.contextId, refresh, forScan: this.host.pendingAssessment?.projectCommit === request.commit };
     this.host.workflowId = id;
     this.host.el("compliance-workflow-output").textContent = "";
     this.status(refresh ? "Refreshing the project; the previous copy stays available until preparation succeeds…" : "Downloading and preparing the project. Review the tool approval to continue…");
     this.render();
     this.host.setState();
+    return true;
   }
 
   revision(project) {
@@ -125,12 +146,21 @@ class ComplianceProjects {
   showReady(notice) {
     if (!this.ready) return;
     this.status(notice || "Ready. This downloaded copy is reused until you choose to update it.");
-    this.host.text("compliance-project-detail", `${this.ready.name} · ${this.revision(this.ready)} · prepared ${new Date(this.ready.prepared_at).toLocaleString()}`);
+    const dependencies = this.ready.dependency_sources
+      ? this.dependencyLines(this.ready.dependency_sources)
+      : (this.ready.dependencies || []).map(entry => entry.name + " @ " + entry.cache_key);
+    this.host.text("compliance-project-detail", [
+      this.ready.name + " · " + this.revision(this.ready),
+      this.ready.url,
+      "Commit " + this.ready.commit,
+      ...(dependencies.length ? dependencies : ["No dependencies"]),
+    ].join("\n"));
   }
 
   handleWorkflowEvent(type, payload) {
     if (!this.preparation) return;
     if (type === "tool.result" && payload.name === "compliance_profile") {
+      this.preparation.succeeded = payload.success === true;
       this.preparation.error = payload.success ? null : payload.error || "Preparation failed.";
     } else if (type === "error") {
       this.preparation.error = payload.detail || "Preparation failed.";
@@ -167,7 +197,7 @@ class ComplianceProjects {
         } else {
           this.status(request.refresh
             ? "Update available. Review the revision and dependencies before updating."
-            : "Review the revision and dependencies, then choose Download & prepare.");
+            : "The first scan prepares this revision. Review its source and dependencies here.");
           const installed = this.ready;
           const oldDependencies = installed?.dependency_sources
             ? this.dependencyLines(installed.dependency_sources)
@@ -180,22 +210,26 @@ class ComplianceProjects {
               "",
             ] : []),
             (request.refresh ? "Upstream · " : upstream.name + " · ") + this.revision(upstream),
+            upstream.url,
             "Commit " + upstream.commit,
             ...(newDependencies.length ? newDependencies : ["No dependencies"]),
             ...(request.refresh && installed ? ["Your current copy stays in use if the update fails."] : []),
           ].join("\n"));
         }
-        if (!request.refresh && this.cache.has(this.selected)) this.request("compliance.project.cached", this.selected);
+        if (!request.refresh && !this.cacheError && this.cache.has(this.selected)) this.request("compliance.project.cached", this.selected);
       } else if (payload.project) {
         this.ready = payload.project;
         this.cache.set(payload.project.url, payload.project);
         this.host.field("profile").value = payload.project.profile;
         this.showReady(request.notice ? `${request.notice} The ready copy shown below is available.` : null);
       } else {
-        this.status(request.notice || "No ready copy is available. Validate the URL, then download and prepare it.");
+        this.cache.delete(request.url);
+        this.ready = null;
+        this.status(request.notice || "No prepared copy is available. Choose Scan host to prepare this profile.");
       }
       this.host.renderSelection();
-      this.render();
+      this.host.continueAssessmentSetup();
+      this.host.setState();
     }
     if (["user.message.complete", "user.message.rejected"].includes(type) && payload.message_id === this.preparation?.id) {
       const finished = this.preparation;
@@ -205,8 +239,12 @@ class ComplianceProjects {
         const notice = payload.stopped ? "Preparation stopped."
           : type === "user.message.rejected" ? payload.detail
           : finished.error;
+        if (finished.forScan && (notice || !finished.succeeded)) {
+          finished.error = notice || "No prepared profile was recorded. Choose Scan host to try again.";
+          this.host.stopAssessmentSetup(finished.error);
+        }
         if (finished.refresh) this.validated = null;
-        this.request("compliance.project.cached", finished.url, { notice });
+        this.request("compliance.project.cached", finished.url, { notice: finished.error || notice });
       }
       this.render();
     }
@@ -226,10 +264,11 @@ class ComplianceProjects {
       return button;
     }));
     this.host.filterProfiles();
-    const pending = Array.from(this.requests.values()).some(request => request.sequence === this.sequence && request.type !== "compliance.projects");
+    this.host.el("compliance-project-summary").hidden = this.host.baselineId !== "remote" || !this.selected;
+    const pending = this.selectionPending();
     this.host.el("compliance-project-url").disabled = !this.inventory.connected || !!this.preparation;
     this.host.el("compliance-project-validate").disabled = !this.inventory.connected || pending || !!this.preparation;
-    this.host.el("compliance-project-prepare").disabled = !this.inventory.canWrite() || !this.validated?.commit || this.validated.refresh || !!this.ready || pending || !!this.preparation;
+    this.host.el("compliance-project-prepare").disabled = !this.inventory.canWrite() || !this.validated?.commit || this.validated.refresh || !!this.ready || pending || !!this.preparation || !!this.host.pendingAssessment;
     const checking = this.host.el("compliance-project-refresh");
     const update = this.host.el("compliance-project-update");
     const cancel = this.host.el("compliance-project-cancel-update");

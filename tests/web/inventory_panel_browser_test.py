@@ -464,9 +464,9 @@ def test_unnamed_resource_shows_its_address_once(dashboard: Page) -> None:
         "api.example.test"
     )
     page.locator("#compliance-tab").click()
-    unnamed_asset = page.locator('[data-compliance-asset="1"]')
-    expect(unnamed_asset.locator("strong")).to_have_text("example.test")
-    expect(unnamed_asset.locator(".compliance-asset-address")).to_have_count(0)
-    expect(
-        page.locator('[data-compliance-asset="2"] .compliance-asset-address')
-    ).to_have_text("api.example.test")
+    expect(page.locator('#compliance-host option[value="1"]')).to_have_text(
+        "example.test"
+    )
+    expect(page.locator('#compliance-host option[value="2"]')).to_have_text(
+        "API (api.example.test)"
+    )

@@ -18,19 +18,27 @@ class CallbackModule(CallbackBase):
         super().__init__()
         self.failures = []
         self.failure_count = 0
+        self.changed_tasks: list[dict[str, str]] = []
+        self.changed_count = 0
+
+    def _task_info(self, result: Any) -> dict[str, str]:
+        hidden = result._result.get("_ansible_no_log") or result._task.no_log
+        return {
+            "host": result._host.get_name()[:256],
+            "task": "[no_log]" if hidden else result._task.get_name()[:300],
+        }
+
+    def v2_runner_on_ok(self, result: Any) -> None:
+        if result._result.get("changed"):
+            self.changed_count += 1
+            if len(self.changed_tasks) < 200:
+                self.changed_tasks.append(self._task_info(result))
 
     def _failure(self, result: Any, kind: str) -> None:
         self.failure_count += 1
         if len(self.failures) >= 200:
             return
-        hidden = result._result.get("_ansible_no_log") or result._task.no_log
-        self.failures.append(
-            {
-                "host": result._host.get_name()[:256],
-                "task": "[no_log]" if hidden else result._task.get_name()[:300],
-                "kind": kind,
-            }
-        )
+        self.failures.append({**self._task_info(result), "kind": kind})
 
     def v2_runner_on_failed(self, result: Any, ignore_errors: bool = False) -> None:
         self._failure(result, "ignored" if ignore_errors else "failed")
@@ -43,6 +51,8 @@ class CallbackModule(CallbackBase):
         payload = {
             "complete": True,
             "hosts": {host: stats.summarize(host) for host in sorted(stats.processed)},
+            "changed_tasks": self.changed_tasks,
+            "changed_tasks_truncated": self.changed_count > len(self.changed_tasks),
             "failed_tasks": self.failures,
             "failed_tasks_truncated": self.failure_count > len(self.failures),
         }

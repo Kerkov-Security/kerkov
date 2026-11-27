@@ -364,6 +364,9 @@ class AnsibleTool(BaseTool):
                 and not summary["totals"]["unreachable"]
             )
             metadata.update(host_count=summary["host_count"], totals=summary["totals"])
+            for key in ("changed_tasks", "changed_tasks_truncated"):
+                if key in summary:
+                    metadata[key] = summary[key]
             metadata["status"] = "completed" if success else "failed"
             return ToolResult(
                 success=success,

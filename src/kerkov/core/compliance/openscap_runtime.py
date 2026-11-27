@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from kerkov.core.automation.ansible import bundled_playbook, ssh_inventory_host
 from kerkov.core.automation.profiles import local_file, read_document
 from kerkov.core.compliance.openscap import (
+    MAX_PROFILE_ID_CHARS,
+    PROFILE_ID_PATTERN,
     assessment_controls,
     datastream_bytes,
     import_report,
@@ -37,8 +39,8 @@ class OpenScapSettings(BaseModel):
         description="Exact target Ansible distribution_version fact, such as 24.04.",
     )
     profile_id: str = Field(
-        pattern=r"^xccdf_[A-Za-z0-9_.:-]+$",
-        max_length=1024,
+        pattern=PROFILE_ID_PATTERN,
+        max_length=MAX_PROFILE_ID_CHARS,
         description="Full XCCDF profile ID in the reviewed datastream.",
     )
     sha256: str = Field(

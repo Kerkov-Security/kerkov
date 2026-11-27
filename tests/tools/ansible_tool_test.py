@@ -424,7 +424,7 @@ class AnsibleToolTest(unittest.TestCase):
 
 
 class AnsibleBinarySmokeTest(unittest.TestCase):
-    def test_real_playbook_returns_two_local_host_recaps_and_hides_no_log(self):
+    def test_real_playbook_reports_changes_and_hides_no_log(self):
         binary = ansible_binary()
         if binary is None:
             self.skipTest("ansible-playbook is not installed")
@@ -447,6 +447,17 @@ class AnsibleBinarySmokeTest(unittest.TestCase):
   tasks:
     - name: Verify local execution
       ansible.builtin.ping:
+    - name: Preview named task
+      ansible.builtin.debug:
+        msg: private-module-output
+      changed_when: true
+      when: inventory_hostname == 'first'
+    - name: sensitive changed task name
+      no_log: true
+      ansible.builtin.debug:
+        msg: hidden-module-output
+      changed_when: true
+      when: inventory_hostname == 'second'
     - name: sensitive task name
       no_log: true
       ansible.builtin.fail:
@@ -460,6 +471,7 @@ class AnsibleBinarySmokeTest(unittest.TestCase):
                         {
                             "playbook": "tasks.yml",
                             "inventory": "hosts.json",
+                            "check": True,
                             "timeout_seconds": 30,
                         }
                     )
@@ -471,4 +483,18 @@ class AnsibleBinarySmokeTest(unittest.TestCase):
             self.assertEqual(payload["host_count"], 2, result.error)
             self.assertEqual(payload["totals"]["failures"], 1)
             self.assertEqual(payload["failed_tasks"][0]["task"], "[no_log]")
-            self.assertNotIn("secret-value-must-not-escape", result.output)
+            self.assertEqual(payload["totals"]["changed"], 2)
+            self.assertCountEqual(
+                result.metadata["changed_tasks"],
+                [
+                    {"host": "first", "task": "Preview named task"},
+                    {"host": "second", "task": "[no_log]"},
+                ],
+            )
+            for secret in (
+                "secret-value-must-not-escape",
+                "private-module-output",
+                "sensitive changed task name",
+                "hidden-module-output",
+            ):
+                self.assertNotIn(secret, result.output)
