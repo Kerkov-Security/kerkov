@@ -237,10 +237,8 @@ class OpenScapPlaybookTest(unittest.TestCase):
         known_hosts = self.workspace / "known_hosts"
         known_hosts.write_text("fixture trust")
         datastream = self.workspace / "datastream.xml"
-        datastream.write_text(
-            '<data-stream-collection xmlns="http://scap.nist.gov/schema/scap/source/1.2">'
-            '<Profile xmlns="http://checklists.nist.gov/xccdf/1.2" '
-            'id="xccdf_example_profile_server"/></data-stream-collection>'
+        datastream.write_bytes(
+            FIXTURE.with_name("openscap-datastream.xml").read_bytes()
         )
         scan = {
             "host": "192.0.2.1",

@@ -203,14 +203,14 @@ Bootstrap runs also save `bootstrap_python.yml` and the import wrapper
 `playbook.yml`. Metadata retains the selected playbook's original path/hash and
 adds the bootstrap snapshot path/hash and actual execution entrypoint.
 
-The summary returns total host counts, task counters, bounded per-host recaps,
-and failed/unreachable task names, each list capped by `max_hosts`. Failed or
-unreachable hosts come first. The returned JSON is compact; complete details stay
-in `summary.json`.
-`no_log` task names are masked in the returned failure list. Module payloads,
-facts, arbitrary debug output, and configuration diffs stay out of the model's
-summary. Inspect the full log explicitly when you need those details; raw logs
-can contain sensitive diagnostics even when the playbook uses `no_log`.
+The summary returns total host counts, task counters, per-host recaps, and
+names of failed, unreachable, and changed tasks. Each list is capped by
+`max_hosts`, with a further limit of 12 changed tasks in the tool response.
+Failed or unreachable hosts come first. For check mode, changed tasks reflect
+Ansible's predictions. The saved `summary.json` contains the larger recap.
+`no_log` task names are masked. Module payloads, facts, debug output, and
+configuration diffs stay out of the model's summary. The private execution log
+can contain sensitive diagnostics.
 
 A nonzero exit, failed/unreachable hosts, timeout, invalid recap, or no matched
 hosts is a failed tool call. Startup and timeout diagnostics are returned in the

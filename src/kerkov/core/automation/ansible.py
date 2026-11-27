@@ -172,22 +172,29 @@ def load_summary(directory: Path, max_hosts: int) -> dict[str, Any]:
     normalized.sort(
         key=lambda item: (-item["unreachable"], -item["failures"], item["host"])
     )
-    failures = payload.get("failed_tasks", [])
-    if not isinstance(failures, list):
-        raise ValueError("invalid failed task recap")
-    failed_tasks = []
-    for failure in failures[:max_hosts]:
-        if not isinstance(failure, dict):
-            raise ValueError("invalid failed task recap")
-        failed_tasks.append(
-            {key: str(failure.get(key, ""))[:300] for key in ("host", "task", "kind")}
+    details: dict[str, list[dict[str, str]] | bool] = {}
+    for key, fields, limit in (
+        ("failed_tasks", ("host", "task", "kind"), max_hosts),
+        ("changed_tasks", ("host", "task"), min(max_hosts, 12)),
+    ):
+        if key == "changed_tasks" and key not in payload:
+            continue
+        entries = payload.get(key, [])
+        if not isinstance(entries, list) or any(
+            not isinstance(entry, dict) for entry in entries[:limit]
+        ):
+            raise ValueError(f"invalid Ansible {key} recap")
+        details[key] = [
+            {field: str(entry.get(field, ""))[:300] for field in fields}
+            for entry in entries[:limit]
+        ]
+        details[f"{key}_truncated"] = (
+            bool(payload.get(f"{key}_truncated")) or len(entries) > limit
         )
     return {
         "host_count": len(hosts),
         "hosts": normalized[:max_hosts],
         "hosts_truncated": len(hosts) > max_hosts,
         "totals": totals,
-        "failed_tasks": failed_tasks,
-        "failed_tasks_truncated": bool(payload.get("failed_tasks_truncated"))
-        or len(failures) > max_hosts,
+        **details,
     }
