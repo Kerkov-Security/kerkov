@@ -9,7 +9,7 @@ the tool surface and the browser panel.
 
 | Module | Role |
 |---|---|
-| `core/workflows/registry.py` | `WORKFLOW_DEFINITIONS`: each workflow's name, team role, actions and static objective overlay |
+| `core/workflows/registry.py` | `WORKFLOW_DEFINITIONS`: each workflow's name, recommended modes, actions and static objective overlay |
 | `core/workflows/context.py` | `WorkflowContext`, the front end's live state as getters; `WorkflowObserver` for progress |
 | `core/workflows/compliance.py` | `ComplianceRun`: readiness, plan gating, result folding and the persisted run record |
 | `core/workflows/output.py` | `WorkflowOutput`, a forwarding `OutputSink` that also hands each tool result to the run |
@@ -25,10 +25,9 @@ Both front ends read one list, the way they share `COMMAND_SPECS`. `/workflow`
 lists it, dispatches through it, and a test requires a terminal handler for every
 entry, so neither front end can offer a workflow the other lacks.
 
-Each definition declares a team role (Compliance is Blue, CTF is Red). The role
-is **advisory**: running a workflow in another mode surfaces one warning and the
-run proceeds, because `/mode` retires the engagement and clears the conversation
-the workflow is running in.
+Compliance recommends Blue and Purple. CTF recommends Red. In other modes,
+the workflow shows a warning and proceeds in the current engagement. The
+`/mode` command starts a new engagement.
 
 ## Run and engagement scope
 

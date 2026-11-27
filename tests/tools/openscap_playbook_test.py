@@ -171,6 +171,18 @@ class OpenScapPlaybookTest(unittest.TestCase):
         self.assertFalse(run.success)
         self.assertFalse((self.workspace / "calls.jsonl").exists())
 
+    def test_major_release_requires_matching_distribution_and_dotted_version(self):
+        self.variables["openscap_expected_version"] = "9.*"
+        self.variables["ansible_facts"]["distribution_version"] = "90.1"
+        self.assertFalse(self._run(limit="first").success)
+        self.assertFalse((self.workspace / "calls.jsonl").exists())
+        self.variables["ansible_facts"]["distribution_version"] = "9.6"
+        run = self._run(limit="first")
+        self.assertTrue(run.success, run.error)
+        directory = Path(run.metadata["artifact_directory"])
+        manifest = json.loads((directory / "openscap/first/manifest.json").read_text())
+        self.assertEqual(manifest["distribution_version"], "9.6")
+
     def test_scanner_errors_are_not_completed_assessments(self):
         self.variables["openscap_profile"] = "xccdf_example_profile_broken"
         run = self._run()

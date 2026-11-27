@@ -150,7 +150,7 @@ class AnsibleToolTest(unittest.TestCase):
             self.assertFalse(result.success)
         self.assertEqual(len(self.executor.calls), 1)
 
-    def test_failed_and_unreachable_hosts_remain_visible(self):
+    def test_unreachable_host_remains_visible(self):
         self.executor.summary["hosts"] = {
             "first": _recap(),
             "second": _recap(unreachable=1),
@@ -162,6 +162,18 @@ class AnsibleToolTest(unittest.TestCase):
         self.assertEqual(payload["hosts"][0]["host"], "second")
         self.assertEqual(payload["totals"]["unreachable"], 1)
         self.assertEqual(payload["exit_code"], 4)
+        self.assertEqual(
+            result.error, "Ansible reported 1 unreachable host. See the saved log."
+        )
+
+    def test_failed_task_error_reports_the_failure_count(self):
+        self.executor.summary["hosts"] = {"first": _recap(failures=1)}
+        self.executor.result = CommandResult(2)
+        result = asyncio.run(self.tool.execute(self.params))
+        self.assertFalse(result.success)
+        self.assertEqual(
+            result.error, "Ansible reported 1 failed task. See the saved log."
+        )
 
     def test_default_recap_fits_engine_output_limit(self):
         self.executor.summary["hosts"] = {

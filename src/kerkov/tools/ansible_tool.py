@@ -358,24 +358,33 @@ class AnsibleTool(BaseTool):
                     f"Ansible produced no recap (exit {command.exit_code}); "
                     f"inspect {directory / 'ansible.log'}"
                 ) from exc
-            success = (
-                command.exit_code == 0
-                and not summary["totals"]["failures"]
-                and not summary["totals"]["unreachable"]
-            )
-            metadata.update(host_count=summary["host_count"], totals=summary["totals"])
+            totals = summary["totals"]
+            problems = [
+                f"{count} {label}{'s' if count != 1 else ''}"
+                for count, label in (
+                    (totals["failures"], "failed task"),
+                    (totals["unreachable"], "unreachable host"),
+                )
+                if count
+            ]
+            success = command.exit_code == 0 and not problems
+            metadata.update(host_count=summary["host_count"], totals=totals)
             for key in ("changed_tasks", "changed_tasks_truncated"):
                 if key in summary:
                     metadata[key] = summary[key]
             metadata["status"] = "completed" if success else "failed"
+            error = None
+            if not success:
+                detail = (
+                    f"Ansible reported {', '.join(problems)}."
+                    if problems
+                    else f"Ansible exited with code {command.exit_code}."
+                )
+                error = f"{detail} See the saved log."
             return ToolResult(
                 success=success,
                 output=json.dumps({**summary, **metadata}, separators=(",", ":")),
-                error=(
-                    None
-                    if success
-                    else "Ansible reported failed or unreachable hosts; inspect the recap and saved log"
-                ),
+                error=error,
                 metadata=metadata,
             )
         except ValidationError as exc:

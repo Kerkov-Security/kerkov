@@ -6,8 +6,6 @@ from unittest.mock import patch
 
 import pytest
 
-from kerkov.core.session.modes import ModeType
-from kerkov.core.workflows.registry import COMPLIANCE_WORKFLOW, mode_mismatch_notice
 from kerkov.web.runtime.session import WebKerkovSession
 from tests.web.engagement_runtime_test import saved
 from tests.web.inventory_transport_test import _communicator, _until, runtime
@@ -77,9 +75,7 @@ async def test_list_and_resume_round_trip(runtime):
         result = await _until(socket, "engagement.resumed")
         assert result["engagement_id"] == ident
         assert result["messages"][-1]["content"] == "Saved finding"
-        assert result["compliance"]["mode_notice"] == mode_mismatch_notice(
-            COMPLIANCE_WORKFLOW, ModeType.PURPLE
-        )
+        assert result["compliance"]["mode_notice"] is None
     finally:
         await socket.disconnect()
 

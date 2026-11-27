@@ -10,7 +10,7 @@ from tests.web.resource_profile_browser_test import emit, last_request
 
 WINDOWS = "Use Linux, macOS or WSL as the compliance controller"
 MODE_NOTICE = (
-    "compliance targets Blue; this engagement is in Purple — "
+    "compliance targets Blue or Purple. This engagement is in Red. "
     "/mode blue starts a new engagement."
 )
 
@@ -109,7 +109,7 @@ def test_known_blockers_show_before_the_form_and_follow_mode_switches(
         "session.ready",
         {
             "provider_ready": True,
-            "mode": "purple",
+            "mode": "red",
             "compliance": {"blockers": [WINDOWS], "mode_notice": MODE_NOTICE},
         },
     )
@@ -127,9 +127,9 @@ def test_known_blockers_show_before_the_form_and_follow_mode_switches(
         page,
         "mode.changed",
         {
-            "from": "purple",
-            "to": "blue",
-            "name": "Blue",
+            "from": "red",
+            "to": "purple",
+            "name": "Purple",
             "compliance": {"blockers": [], "mode_notice": None},
         },
     )
@@ -144,7 +144,7 @@ def test_mode_mismatch_alone_annotates_without_blocking(dashboard: Page):
         "session.ready",
         {
             "provider_ready": True,
-            "mode": "purple",
+            "mode": "red",
             "compliance": {"blockers": [], "mode_notice": MODE_NOTICE},
         },
     )

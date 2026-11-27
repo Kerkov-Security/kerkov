@@ -44,8 +44,7 @@ def run_workflow_command(session: Any, message: str, bus: WebEventBus) -> None:
         return
     if not args or (len(args) == 1 and args[0].lower() == "list"):
         lines = [
-            f"{d.name} ({d.mode.value.capitalize()}): {d.summary}"
-            for d in WORKFLOW_DEFINITIONS
+            f"{d.name} ({d.mode_label}): {d.summary}" for d in WORKFLOW_DEFINITIONS
         ]
         _result(bus, session, "Workflows", "\n".join(lines))
         return

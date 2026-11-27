@@ -11,7 +11,10 @@
           - openscap_expected_distribution is defined
           - openscap_expected_version is defined
           - ansible_facts['distribution'] == openscap_expected_distribution
-          - ansible_facts['distribution_version'] == openscap_expected_version
+          - >-
+            ansible_facts['distribution_version'] == openscap_expected_version or
+            (openscap_expected_version is match('^[0-9]{1,3}[.][*]$') and
+            ansible_facts['distribution_version'].split('.')[0] == openscap_expected_version[:-2])
           - openscap_content is defined
           - openscap_content is match('^/[^\r\n]+$')
           - openscap_content_sha256 is defined
@@ -21,7 +24,7 @@
           - openscap_profile is match('^xccdf_[A-Za-z0-9_.:-]+$')
           - lookup('ansible.builtin.env', 'KERKOV_ANSIBLE_SUMMARY_FILE') is match('^/')
         fail_msg: >-
-          Use Kerkov's ansible tool with check=false, an exact Linux platform,
+          Use Kerkov's ansible tool with check=false, a matching Linux distribution and release,
           a pre-provisioned absolute datastream path and SHA-256, and a full
           profile id. This playbook never installs software or content.
 
