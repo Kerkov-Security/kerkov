@@ -82,7 +82,11 @@ from kerkov.web.runtime.agents import WebAgents
 from kerkov.web.runtime.approval import WebApprovalController, WebApprovalStrategy
 from kerkov.web.runtime.browser import WebBrowser
 from kerkov.web.runtime.commands import command_catalog, unsupported_command_detail
-from kerkov.web.runtime.compliance import build_run, compliance_readiness
+from kerkov.web.runtime.compliance import (
+    build_run,
+    compliance_readiness,
+    recommend_for_host,
+)
 from kerkov.web.runtime.engagements import WebEngagements
 from kerkov.web.runtime.events import CommandReplyBus, WebEventBus, WorkflowEventBus
 from kerkov.web.runtime.inventory import WebInventory
@@ -512,6 +516,18 @@ class WebKerkovSession:
                     return
                 overlay: list[str] = []
                 if workflow_request is not None and workflow_id:
+                    if (
+                        isinstance(workflow_request, dict)
+                        and workflow_request.get("action") == "recommend"
+                    ):
+                        await recommend_for_host(
+                            self,
+                            workflow_request,
+                            event_bus,
+                            active_interrupt,
+                            workflow_id,
+                        )
+                        return
                     notice = mode_mismatch_notice(
                         COMPLIANCE_WORKFLOW, self.mode_manager.current_mode.mode_type
                     )

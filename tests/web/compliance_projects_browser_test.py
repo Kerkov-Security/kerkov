@@ -13,6 +13,7 @@ from tests.web.host_compliance_browser_test import (
     emit,
     emit_access,
     open_compliance,
+    show_failed_assessment,
 )
 from tests.web.resource_profile_browser_test import emit as emit_socket
 from tests.web.resource_profile_browser_test import last_request, sent, snapshot
@@ -91,7 +92,9 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
     page = dashboard
     page.set_viewport_size({"width": width, "height": 1000})
     _open(page, configure=False)
-    expect(page.locator("#compliance-projects button")).to_have_count(2)
+    expect(page.locator('[data-compliance-project="devsec-linux"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
     expect(page.locator("#compliance-profile-name")).to_have_text("Linux hardening")
     expect(page.locator("#compliance-customize")).to_have_attribute(
         "aria-expanded", "false"
@@ -149,6 +152,175 @@ def test_catalog_first_use_validates_then_prepares_before_assessment(
     assert workflow["scan"]["profile"] == _ready()["profile"]
     assert workflow["remediation"] is None
     assert workflow["bootstrap_python"] is False
+
+
+@pytest.mark.parametrize(
+    "width, query, title, url",
+    [
+        (
+            390,
+            "24.04 ubuntu",
+            "Ubuntu 24.04 STIG",
+            "https://github.com/mitre/canonical-ubuntu-24.04-lts-stig-baseline",
+        ),
+        (
+            1440,
+            "red hat 9 stig",
+            "RHEL 9 STIG",
+            "https://github.com/mitre/redhat-enterprise-linux-9-stig-baseline",
+        ),
+    ],
+)
+def test_search_finds_the_platform_and_prepares_the_selected_benchmark(
+    dashboard: Page, width, query, title, url
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    emit_access(page, [_create_mock_access()])
+    _reply(page, "compliance.projects", projects=[])
+    page.get_by_role("searchbox", name="Search profiles").fill(query)
+    match = page.locator("#compliance-projects button:visible")
+    expect(match).to_have_count(1)
+    expect(match).to_contain_text(title)
+    match.click()
+    expect(page.locator("#compliance-profile-name")).to_have_text(title)
+    expect(page.locator("#compliance-advanced")).to_be_hidden()
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    assert last_request(page, "compliance.project.validate")["url"] == url
+    assert sent(page, "compliance.run") == []
+    _reply(page, "compliance.project.validate", validated=_ready(url=url, ref="main"))
+    assert last_request(page, "compliance.project.prepare")["project_request"] == {
+        "url": url,
+        "commit": COMMIT,
+        "refresh": False,
+    }
+
+
+@pytest.mark.parametrize("width, major", [(390, 9), (1440, 10)])
+def test_pci_profile_launches_openscap_without_manual_datastream_fields(
+    dashboard: Page, width, major
+):
+    page = dashboard
+    page.set_viewport_size({"width": width, "height": 1000})
+    open_compliance(page)
+    emit_access(page, [_create_mock_access()])
+    page.get_by_role("searchbox", name="Search profiles").fill(f"pci dss rhel {major}")
+    match = page.locator("#compliance-projects button:visible")
+    expect(match).to_have_count(1)
+    expect(match).to_contain_text(f"PCI DSS v4.0.1 · RHEL {major}")
+    match.click()
+    expect(page.locator("#compliance-project-status")).to_contain_text(
+        "pinned SCAP release"
+    )
+    expect(page.locator("#compliance-openscap")).to_be_hidden()
+    expect(page.locator("#compliance-advanced")).to_be_hidden()
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["scap_preset_id"].startswith(f"pci-dss-rhel{major}-")
+    assert request["scan"]["profile"] == f"ssg-rhel{major}-ds.xml"
+    assert request["scan"]["openscap"]["distribution"] == "RedHat"
+    assert request["scan"]["openscap"]["version"] == f"{major}.*"
+    assert request["scan"]["openscap"]["profile_id"].endswith("_pci-dss")
+    assert request["remediation"] is None
+    assert sent(page, "compliance.project.prepare") == []
+    expect(page.get_by_role("article", name="Compliance assessment")).to_contain_text(
+        f"PCI DSS v4.0.1 · RHEL {major}"
+    )
+
+
+def test_build_save_and_scan_custom_profile(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    emit_access(page, [_create_mock_access()])
+    _reply(page, "compliance.projects", projects=[], custom_profiles=[])
+    page.get_by_role("button", name="New profile").click()
+    dialog = page.get_by_role("dialog", name="New profile")
+    dialog.get_by_label("Profile name").fill("Web host checks")
+    dialog.get_by_label("Check type", exact=True).select_option("file_mode")
+    dialog.get_by_label("File path").fill("/etc/passwd")
+    dialog.get_by_label("Octal mode").fill("0644")
+    dialog.get_by_role("button", name="Add check").click()
+    dialog.get_by_label("Check type", exact=True).nth(1).select_option(
+        "package_installed"
+    )
+    dialog.get_by_label("Package name").fill("auditd")
+    dialog.get_by_role("button", name="Save profile").click()
+    draft = last_request(page, "compliance.custom.save")["draft"]
+    assert draft == {
+        "reference": None,
+        "profile": {
+            "name": "Web host checks",
+            "checks": [
+                {"kind": "file_mode", "target": "/etc/passwd", "expected": "0644"},
+                {"kind": "package_installed", "target": "auditd", "expected": ""},
+            ],
+        },
+    }
+    entry = {**draft["profile"], "id": "c" * 32, "revision": "d" * 64}
+    _reply(page, "compliance.custom.save", profile=entry)
+    expect(page.get_by_role("group", name="My profiles")).to_be_visible()
+    card = page.get_by_role("button", name="Web host checks 2 Linux checks")
+    expect(card).to_have_attribute("aria-pressed", "true")
+    page.get_by_role("button", name="Edit Web host checks").click()
+    expect(
+        page.get_by_role("dialog", name="Edit profile").get_by_label("File path")
+    ).to_have_value("/etc/passwd")
+    page.get_by_role("button", name="Cancel", exact=True).click()
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["custom_profile"] == {
+        "id": entry["id"],
+        "revision": entry["revision"],
+    }
+    assert request["scan"]["profile"] == entry["id"]
+    assert request["remediation"] is None
+
+
+def test_auto_recommends_a_verified_platform_and_waits_for_review(dashboard: Page):
+    page = dashboard
+    open_compliance(page)
+    emit_access(page, [_create_mock_access()])
+    _reply(page, "compliance.projects", projects=[])
+    page.get_by_role("button", name="Auto assessment", exact=True).click()
+    page.get_by_label("Assessment goal").select_option("stig")
+    page.get_by_role("button", name="Scan host", exact=True).click()
+    detection = last_request(page, "compliance.run")
+    assert detection["workflow_request"]["action"] == "recommend"
+    assert detection["workflow_request"]["goal"] == "stig"
+    assert detection["workflow_request"]["scan"]["port"] == 2222
+    emit_socket(
+        page,
+        "compliance.event",
+        {
+            "message_id": detection["message_id"],
+            "event_type": "compliance.recommended",
+            "payload": {
+                "id": "mitre-ubuntu-2404-stig",
+                "platform": "Ubuntu 24.04",
+                "reason": "Verified Ubuntu 24.04 over SSH.",
+            },
+        },
+    )
+    emit(page, "user.message.complete", {"message_id": detection["message_id"]})
+    recommendation = page.get_by_role("article", name="Compliance assessment")
+    expect(recommendation).to_contain_text("Recommended profile · Ubuntu 24.04 STIG")
+    assert not sent(page, "compliance.project.validate")
+    recommendation.get_by_role("button", name="Scan with recommended profile").click()
+    target = "https://github.com/mitre/canonical-ubuntu-24.04-lts-stig-baseline"
+    assert last_request(page, "compliance.project.validate")["url"] == target
+    _reply(
+        page, "compliance.project.validate", validated=_ready(url=target, ref="main")
+    )
+    prepare = last_request(page, "compliance.project.prepare")
+    _preparation_result(page, prepare)
+    _reply(page, "compliance.project.cached", url=target, project=_ready(url=target))
+    request = last_request(page, "compliance.run")["workflow_request"]
+    assert request["action"] == "assess"
+    assert request["scan"]["port"] == 2222
+    assert request["remediation"] is None
 
 
 @pytest.mark.parametrize("outcome", ["denied", "stopped", "replaced"])

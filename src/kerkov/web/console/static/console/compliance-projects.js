@@ -175,6 +175,10 @@ class ComplianceProjects {
       clearTimeout(request.timer);
       if (type === "compliance.projects") {
         if (payload.projects) this.cache = new Map(payload.projects.map(record => [record.url, record]));
+        if (payload.custom_profiles) {
+          this.host.builder.replace(payload.custom_profiles);
+          this.host.renderSelection();
+        }
         this.render();
         return;
       }
@@ -256,15 +260,28 @@ class ComplianceProjects {
       button.type = "button";
       button.dataset.complianceProject = item.id;
       button.dataset.profileSource = "community";
-      button.setAttribute("aria-pressed", String(item.url === this.selected && this.host.baselineId === "remote"));
+      const selected = item.openscap ? item.id === this.host.baselineId
+        : item.url === this.selected && this.host.baselineId === "remote";
+      button.setAttribute("aria-pressed", String(selected));
       const cached = this.cache.get(item.url);
-      button.append(this.host.node("span", "compliance-baseline-meta", `${item.publisher} · ${item.platform}`), this.host.node("strong", "", item.name), this.host.node("span", "", item.description), this.host.node("span", "compliance-baseline-count", cached ? `Downloaded · ${this.revision(cached)}` : "Not downloaded · assessment profile"));
-      button.disabled = !this.inventory.connected || !!this.preparation;
-      button.addEventListener("click", () => this.select(item.url));
+      const detail = item.openscap ? "OpenSCAP assessment" : cached ? `Downloaded · ${this.revision(cached)}` : "Not downloaded · assessment profile";
+      button.append(this.host.node("span", "compliance-baseline-meta", `${item.publisher} · ${item.platform}`), this.host.node("strong", "", item.name), this.host.node("span", "", item.description), this.host.node("span", "compliance-baseline-count", detail));
+      button.disabled = item.openscap ? !this.inventory.canWrite() : !this.inventory.connected || !!this.preparation;
+      button.addEventListener("click", () => item.openscap ? this.host.selectScapPreset(item.id) : this.select(item.url));
       return button;
     }));
     this.host.filterProfiles();
-    this.host.el("compliance-project-summary").hidden = this.host.baselineId !== "remote" || !this.selected;
+    const preset = this.catalog.find(item => item.openscap && item.id === this.host.baselineId);
+    this.host.el("compliance-project-summary").hidden = !preset && (this.host.baselineId !== "remote" || !this.selected);
+    if (preset) {
+      this.status("The first scan downloads the pinned SCAP release (about 175 MB). Later scans reuse verified content.");
+      this.host.text("compliance-project-detail", [
+        `${preset.publisher} · SCAP Security Guide ${preset.release}`,
+        preset.url,
+        preset.filename,
+        "Datastream SHA-256 " + preset.openscap.sha256,
+      ].join("\n"));
+    }
     const pending = this.selectionPending();
     this.host.el("compliance-project-url").disabled = !this.inventory.connected || !!this.preparation;
     this.host.el("compliance-project-validate").disabled = !this.inventory.connected || pending || !!this.preparation;

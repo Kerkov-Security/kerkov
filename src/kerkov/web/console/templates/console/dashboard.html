@@ -14,9 +14,10 @@
     <link rel="stylesheet" href="{% static 'console/network-map.css' %}?v=5">
     <script src="{% static 'console/agents.js' %}?v=2" defer></script>
     <link rel="stylesheet" href="{% static 'console/resource-profile.css' %}?v=3">
-    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=14">
-    <script src="{% static 'console/compliance-projects.js' %}?v=4" defer></script>
-    <script src="{% static 'console/host-compliance.js' %}?v=26" defer></script>
+    <link rel="stylesheet" href="{% static 'console/compliance.css' %}?v=15">
+    <script src="{% static 'console/compliance-projects.js' %}?v=6" defer></script>
+    <script src="{% static 'console/compliance-builder.js' %}?v=1" defer></script>
+    <script src="{% static 'console/host-compliance.js' %}?v=27" defer></script>
     <script src="{% static 'console/resource-profile.js' %}?v=4" defer></script>
     <script src="{% static 'console/inventory.js' %}?v=13" defer></script>
     <script src="{% static 'console/provider-settings.js' %}?v=3" defer></script>
@@ -175,11 +176,24 @@
                 <div class="compliance-setup-grid">
               <section id="compliance-profile-settings" class="compliance-profile-settings" aria-labelledby="compliance-baseline-heading">
                 <div class="compliance-step-heading"><h3 id="compliance-baseline-heading">Profiles</h3><span id="compliance-profile-name" class="compliance-caption">Linux account protection</span></div>
+                <div class="compliance-profile-toolbar">
+                  <button type="button" id="compliance-auto" class="inventory-button" aria-pressed="false">Auto assessment</button>
+                  <button type="button" id="compliance-new-profile" class="inventory-button">New profile</button>
+                </div>
+                <div class="compliance-profile-filters">
+                  <label class="sr-only" for="compliance-profile-search">Search profiles</label><input id="compliance-profile-search" type="search" placeholder="Search profiles or platforms">
+                  <label class="sr-only" for="compliance-profile-source">Profile source</label><select id="compliance-profile-source"><option value="all">All sources</option><option value="builtin">Built-in baselines</option><option value="community">Community profiles</option><option value="custom">My profiles</option><option value="local">Local projects</option></select>
+                </div>
+                <p id="compliance-profile-count" class="compliance-caption" role="status" hidden></p>
                 <div class="compliance-profile-library" tabindex="0" role="region" aria-label="Available compliance profiles">
-                <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
-                <h4 id="compliance-community-heading" class="compliance-source-heading">Community profiles <span>Assessment only</span></h4>
-                <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
-                <div class="compliance-profile-empty" hidden id="compliance-profile-empty"><p>No profiles match your search.</p><button id="compliance-profile-clear" class="inventory-link" type="button">Clear profile filters</button></div>
+                  <div id="compliance-baselines" class="compliance-baseline-list" role="group" aria-label="Select a baseline"></div>
+                  <h4 id="compliance-custom-heading" class="compliance-source-heading" hidden>My profiles <span>Assessment only</span></h4>
+                  <div id="compliance-custom-profiles" class="compliance-baseline-list" role="group" aria-label="My profiles" hidden></div>
+                  <h4 id="compliance-community-heading" class="compliance-source-heading">Community profiles <span>Assessment only</span></h4>
+                  <div id="compliance-projects" class="compliance-baseline-list" role="group" aria-label="Select an upstream project"></div>
+                  <h4 id="compliance-local-heading" class="compliance-source-heading">Local profiles</h4>
+                  <div id="compliance-local-profiles" class="compliance-baseline-list" role="group" aria-label="Select a local profile"></div>
+                  <div class="compliance-profile-empty" hidden id="compliance-profile-empty"><p>No profiles match your search.</p><button id="compliance-profile-clear" class="inventory-link" type="button">Clear profile filters</button></div>
                 </div>
               </section>
               <form id="compliance-form" class="compliance-assessment-form" autocomplete="off" novalidate>
@@ -191,6 +205,14 @@
                 </div>
                 <p id="compliance-selection" class="compliance-selection">Choose a Linux host to start an assessment.</p>
                 <p id="compliance-settings-status" class="compliance-caption" role="status"></p>
+                <label id="compliance-auto-options" class="compliance-auto-options" hidden>Assessment goal
+                  <select id="compliance-auto-goal">
+                    <option value="hardening">General Linux hardening</option>
+                    <option value="cis">CIS Linux</option>
+                    <option value="stig">DISA STIG</option>
+                    <option value="pci">PCI DSS v4.0.1</option>
+                  </select>
+                </label>
                   <div class="compliance-actions compliance-main-actions">
                     <button type="button" id="compliance-scap-recheck" class="inventory-button" hidden>Recheck Ansible</button>
                     <button id="compliance-customize" type="button" class="inventory-button" aria-expanded="false" aria-controls="compliance-advanced">Customize</button>
@@ -260,14 +282,7 @@
                   <p class="compliance-caption">Optional: install from target repositories on Debian/Ubuntu/Alpine using privilege escalation. Preview reports missing Python without installing it.</p>
                   <p id="compliance-changes" class="compliance-caption"></p>
                   <p id="compliance-action-help" class="compliance-caption">Preview fixes before applying fixes. Tool approvals still apply.</p>
-                  <details id="compliance-profile-options" class="compliance-connection"><summary>Profile search &amp; imports</summary>
-                  <h4 class="compliance-source-heading">Local profiles</h4>
-                  <div id="compliance-local-profiles" class="compliance-baseline-list" role="group" aria-label="Select a local profile"></div>
-                <div class="compliance-profile-filters">
-                  <label class="sr-only" for="compliance-profile-search">Search profiles</label><input id="compliance-profile-search" type="search" placeholder="Search profiles or platforms">
-                  <label class="sr-only" for="compliance-profile-source">Profile source</label><select id="compliance-profile-source"><option value="all">All sources</option><option value="builtin">Built-in baselines</option><option value="community">Community profiles</option><option value="local">Local projects</option></select>
-                </div>
-                <p id="compliance-profile-count" class="compliance-caption" role="status"></p>
+                  <details id="compliance-profile-options" class="compliance-connection"><summary>Profile imports</summary>
                 <div class="compliance-connection">
                   <label for="compliance-project-url">Or use a public GitHub project URL</label>
                   <input id="compliance-project-url" type="url" maxlength="2048" placeholder="https://github.com/owner/project" autocomplete="off">
@@ -287,6 +302,19 @@
               </form>
                 </div>
               </details>
+              <dialog id="compliance-profile-builder" class="compliance-profile-builder" aria-labelledby="compliance-builder-title">
+                <form id="compliance-builder-form">
+                  <h3 id="compliance-builder-title">New profile</h3>
+                  <label>Profile name<input id="compliance-builder-name" required maxlength="80" autofocus></label>
+                  <fieldset id="compliance-builder-checks"><legend>Checks</legend><div id="compliance-builder-rows"></div></fieldset>
+                  <button type="button" id="compliance-builder-add" class="inventory-button">Add check</button>
+                  <p id="compliance-builder-status" class="compliance-caption" role="status"></p>
+                  <div class="compliance-actions">
+                    <button type="button" id="compliance-builder-cancel" class="inventory-button">Cancel</button>
+                    <button type="submit" id="compliance-builder-save" class="inventory-button inventory-primary">Save profile</button>
+                  </div>
+                </form>
+              </dialog>
               <div id="compliance-live-controls" class="compliance-live-controls">
                 <button id="compliance-stop" type="button" class="inventory-button" hidden>Stop workflow</button>
                 <div id="compliance-approval-host"></div>
@@ -295,7 +323,7 @@
               <section id="compliance-result" class="compliance-result" aria-label="Latest workflow result" hidden>
                 <div class="compliance-result-heading">
                   <div><h3 id="compliance-result-title"></h3><p id="compliance-result-detail"></p></div>
-                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" aria-describedby="compliance-result-preview-warning" hidden>Preview fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
+                  <div class="compliance-actions"><button id="compliance-reassess" type="button" class="inventory-button">Scan host</button><button id="compliance-result-preview" type="button" class="inventory-button inventory-primary" hidden>Preview fixes</button><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button><button id="compliance-export-html" type="button" class="inventory-button">Download report</button></div>
                 </div>
                 <p id="compliance-result-preview-warning" class="compliance-caption" hidden>Preview fixes uses Ansible check mode, which can still make changes. Tool approvals still apply.</p>
                 <p id="compliance-outcome-notice" class="compliance-caption" hidden></p>
@@ -320,7 +348,6 @@
                 <button id="compliance-controls-retry" class="inventory-link" type="button" hidden>Retry loading checks</button>
                 <button id="compliance-controls-clear" class="inventory-link" type="button" hidden>Clear check filters</button>
                 <p id="compliance-controls-notice" class="compliance-caption"></p>
-                <div class="compliance-actions"><button id="compliance-review-apply" type="button" class="inventory-button inventory-primary" hidden>Review fixes</button></div>
               </section>
               <details id="compliance-run-details" class="compliance-run-details" hidden>
                 <summary>Run details <span class="compliance-caption">Readiness, evidence &amp; logs</span></summary>
